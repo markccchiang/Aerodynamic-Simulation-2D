@@ -32,8 +32,29 @@ pressure coefficient `Cp = 1 - (V/V∞)²`, then integrate pressure for the lift
 coefficient `Cl` and moment `Cm`.
 
 This is *inviscid potential flow*: it predicts lift and pressure distributions
-well at small angles, but has no viscosity, so it shows **no drag** (d'Alembert's
-paradox) and **no stall**.
+well at small angles, but the panel solve itself has no viscosity, so its pressure
+drag is **~0** (d'Alembert's paradox) and it has no stall.
+
+### Viscous drag correction
+
+On top of the inviscid solve, an **uncoupled boundary-layer correction** estimates
+the *profile drag* (`Cd`) that potential flow misses. From the inviscid surface
+velocities it marches an integral boundary-layer method along each surface —
+**Thwaites** (laminar) → **Michel** transition → **Head's entrainment method**
+(turbulent) — and applies the **Squire–Young** formula at the trailing edge to get
+drag. It also locates transition and flags trailing-edge separation.
+
+It is *one-way*: lift, pressure, and the d'Alembert check are unchanged. Pass a
+chord-based Reynolds number to switch it on:
+
+```python
+from aerosim import naca4, Geometry, solve
+sol = solve(Geometry(*naca4("0012")), alpha_deg=4.0, re=1e6)
+print(sol.cd_visc)        # ~0.009 profile drag; sol.cd stays ~0 (d'Alembert)
+```
+
+In the explorer, the **log10(Reynolds)** slider drives it live: `Cd` shows in the
+title and transition points are marked on the pressure plot.
 
 ## Project layout
 
@@ -42,6 +63,7 @@ paradox) and **no stall**.
 | `src/aerosim/airfoil.py`  | NACA 4-digit geometry + cosine-spaced paneling |
 | `src/aerosim/panel.py`    | Hess–Smith solver — influence coefficients, Kutta, `Cp`/`Cl`/`Cm` |
 | `src/aerosim/flowfield.py`| velocity field on a grid for streamlines |
+| `src/aerosim/boundary_layer.py` | uncoupled viscous BL correction — profile drag, transition, separation |
 | `src/aerosim/app.py`      | interactive matplotlib UI |
 | `src/main.py`             | entry point that launches the explorer |
 | `src/validate.py`         | checks against thin-airfoil theory & known results |
@@ -51,7 +73,7 @@ a notebook, or a future web front-end.
 
 ## Validation
 
-This is the project's test suite — **run `uv run python src/validate.py` after any change to the physics core** (`src/aerosim/panel.py` or `airfoil.py`); it runs in well under a second.
+This is the project's test suite — **run `uv run python src/validate.py` after any change to the physics core** (`src/aerosim/panel.py`, `airfoil.py`, or `boundary_layer.py`); it runs in well under a second.
 
 `validate.py` confirms the solver against analytical / reference results:
 
@@ -62,10 +84,19 @@ This is the project's test suite — **run `uv run python src/validate.py` after
 - peak surface `Cp ≈ 1` at the stagnation point;
 - lift from the pressure integral matches the Kutta–Joukowski circulation.
 
+For the viscous correction it also checks:
+
+- profile `Cd` of NACA 0012 ≈ published data at Re = 10⁶;
+- `Cd` falls with Reynolds number and rises with angle of attack;
+- transition advances toward the leading edge as Reynolds number rises;
+- the inviscid `Cl`/`Cd` are untouched by enabling the viscous estimate;
+- the flow is attached at α = 0 and separates as it approaches stall.
+
 ## Possible next steps
 
-- Add a viscous boundary-layer correction (e.g. an integral method) to predict
-  drag and stall — this is essentially what XFOIL does.
+- **Couple** the boundary layer back into the inviscid solve (displacement-
+  thickness transpiration) so lift and pressure react to viscosity and real
+  stall appears — the current correction is one-way (drag only).
 - Load arbitrary airfoil coordinate files (`.dat`) instead of only NACA shapes.
-- Plot `Cl` vs α and the drag polar.
+- Plot `Cl` vs α and the drag polar (`Cl` vs `Cd`) now that `Cd` exists.
 - Port the UI to the web (the solver is already independent of matplotlib).

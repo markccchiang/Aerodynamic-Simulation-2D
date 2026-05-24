@@ -47,18 +47,22 @@ class Explorer:
     # ------------------------------------------------------------------ UI
     def _make_sliders(self):
         axc = "#dfe6ef"
-        s_alpha = self.fig.add_axes([0.10, 0.18, 0.55, 0.03], facecolor=axc)
-        s_m = self.fig.add_axes([0.10, 0.13, 0.55, 0.03], facecolor=axc)
-        s_p = self.fig.add_axes([0.10, 0.08, 0.55, 0.03], facecolor=axc)
-        s_t = self.fig.add_axes([0.10, 0.03, 0.55, 0.03], facecolor=axc)
+        s_alpha = self.fig.add_axes([0.10, 0.215, 0.55, 0.03], facecolor=axc)
+        s_re = self.fig.add_axes([0.10, 0.172, 0.55, 0.03], facecolor=axc)
+        s_m = self.fig.add_axes([0.10, 0.129, 0.55, 0.03], facecolor=axc)
+        s_p = self.fig.add_axes([0.10, 0.086, 0.55, 0.03], facecolor=axc)
+        s_t = self.fig.add_axes([0.10, 0.043, 0.55, 0.03], facecolor=axc)
 
         self.sl_alpha = Slider(s_alpha, "Angle of attack (deg)", -15, 15,
                                valinit=5.0, valstep=0.5)
+        # Reynolds number on a log slider; the viscous drag estimate uses it.
+        self.sl_re = Slider(s_re, "log10(Reynolds)", 4.5, 7.5,
+                            valinit=6.0, valstep=0.1)
         self.sl_m = Slider(s_m, "Max camber  M (%)", 0, 9, valinit=2, valstep=1)
         self.sl_p = Slider(s_p, "Camber pos.  P (x/10)", 0, 9, valinit=4, valstep=1)
         self.sl_t = Slider(s_t, "Thickness  XX (%)", 4, 30, valinit=12, valstep=1)
 
-        for sl in (self.sl_alpha, self.sl_m, self.sl_p, self.sl_t):
+        for sl in (self.sl_alpha, self.sl_re, self.sl_m, self.sl_p, self.sl_t):
             sl.on_changed(self.update)
 
         ax_reset = self.fig.add_axes([0.74, 0.04, 0.1, 0.05])
@@ -66,7 +70,7 @@ class Explorer:
         self.btn_reset.on_clicked(self._reset)
 
     def _reset(self, _evt):
-        for sl in (self.sl_alpha, self.sl_m, self.sl_p, self.sl_t):
+        for sl in (self.sl_alpha, self.sl_re, self.sl_m, self.sl_p, self.sl_t):
             sl.reset()
 
     # -------------------------------------------------------------- compute
@@ -83,9 +87,11 @@ class Explorer:
     def update(self, _val):
         code = self._code()
         alpha = float(self.sl_alpha.val)
+        re = 10.0 ** float(self.sl_re.val)
 
         geom = Geometry(*naca4(code, n_panels=self.n_panels))
-        sol = solve(geom, alpha)
+        sol = solve(geom, alpha, re=re)
+        bl = sol.bl
         X, Y, U, V = velocity_field(sol, self.xs, self.ys)
         speed = np.hypot(U, V)
         cp_field = 1.0 - speed**2
@@ -110,9 +116,11 @@ class Explorer:
         self.ax_flow.set_xlim(*XLIM)
         self.ax_flow.set_ylim(*YLIM)
         self.ax_flow.set_aspect("equal")
+        stall = "   — trailing-edge separation" if bl.separated else ""
         self.ax_flow.set_title(
-            f"NACA {code}    α = {alpha:.1f}°    "
-            f"$C_l$ = {sol.cl:+.3f}    $C_m$ = {sol.cm_qc:+.3f}",
+            f"NACA {code}    α = {alpha:.1f}°    Re = {re:.1e}\n"
+            f"$C_l$ = {sol.cl:+.3f}    $C_d$ = {bl.cd:.4f}    "
+            f"$C_m$ = {sol.cm_qc:+.3f}{stall}",
             fontsize=12,
         )
         self.ax_flow.set_xlabel("x / c")
@@ -128,12 +136,17 @@ class Explorer:
         self.ax_cp.plot(xc[half:], sol.cp[half:], color="#2471a3", lw=1.6,
                         label="lower")
         self.ax_cp.axhline(0, color="0.7", lw=0.8)
+        # Mark the boundary-layer transition location on each surface.
+        for surf, color in ((bl.upper, "#c0392b"), (bl.lower, "#2471a3")):
+            if np.isfinite(surf.x_transition):
+                self.ax_cp.axvline(surf.x_transition, color=color, ls=":",
+                                   lw=1.1, alpha=0.7)
         self.ax_cp.invert_yaxis()          # suction (negative Cp) plotted up
         self.ax_cp.set_xlim(-0.02, 1.02)
         self.ax_cp.set_ylim(CP_RANGE[1] + 0.5, CP_RANGE[0] - 1.0)
         self.ax_cp.set_xlabel("x / c")
         self.ax_cp.set_ylabel("$C_p$")
-        self.ax_cp.set_title("Surface pressure", fontsize=11)
+        self.ax_cp.set_title("Surface pressure   (··· transition)", fontsize=11)
         self.ax_cp.legend(loc="lower right", fontsize=9)
         self.ax_cp.grid(alpha=0.25)
 

@@ -13,9 +13,13 @@ and rotated back to global axes.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 import numpy as np
 from matplotlib.path import Path
+
+if TYPE_CHECKING:
+    from .boundary_layer import BoundaryLayer
 
 TWO_PI = 2.0 * np.pi
 
@@ -115,10 +119,25 @@ class Solution:
     cl: float               # lift coefficient
     cd: float               # pressure drag (≈0; a numerical accuracy check)
     cm_qc: float            # moment coefficient about the quarter chord
+    re: float | None = None         # Reynolds number, if a viscous estimate was run
+    bl: "BoundaryLayer | None" = None  # viscous boundary-layer estimate (uncoupled)
+
+    @property
+    def cd_visc(self) -> float | None:
+        """Profile (viscous) drag from the boundary-layer estimate, if computed."""
+        return None if self.bl is None else self.bl.cd
 
 
-def solve(geom: Geometry, alpha_deg: float, vinf: float = 1.0) -> Solution:
-    """Solve the panel system at the given angle of attack."""
+def solve(
+    geom: Geometry, alpha_deg: float, vinf: float = 1.0, re: float | None = None
+) -> Solution:
+    """Solve the panel system at the given angle of attack.
+
+    If ``re`` (chord-based Reynolds number) is given, an *uncoupled* viscous
+    boundary-layer estimate is attached as ``Solution.bl`` and the profile drag
+    is available via ``Solution.cd_visc``. The inviscid result — ``cl``, ``cp``
+    and the d'Alembert pressure-drag ``cd`` — is unchanged by this.
+    """
     a = np.radians(alpha_deg)
     uinf, winf = vinf * np.cos(a), vinf * np.sin(a)
     n = geom.n
@@ -177,4 +196,11 @@ def solve(geom: Geometry, alpha_deg: float, vinf: float = 1.0) -> Solution:
         cp * geom.length * ((geom.xc - 0.25) * geom.nouty - geom.yc * geom.noutx)
     )
 
-    return Solution(geom, alpha_deg, vinf, sigma, gamma, cp, vt, cl, cd, cm_qc)
+    sol = Solution(geom, alpha_deg, vinf, sigma, gamma, cp, vt, cl, cd, cm_qc)
+
+    if re is not None:
+        from .boundary_layer import boundary_layer  # local import: avoid a cycle
+
+        sol.re = re
+        sol.bl = boundary_layer(sol, re)
+    return sol

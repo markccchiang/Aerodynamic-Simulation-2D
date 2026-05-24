@@ -15,6 +15,12 @@ def check(label, value, expected, tol):
     return ok
 
 
+def check_true(label, cond, detail=""):
+    flag = "OK " if cond else "FAIL"
+    print(f"[{flag}] {label}{(': ' + detail) if detail else ''}")
+    return bool(cond)
+
+
 def main():
     passed = True
 
@@ -55,6 +61,50 @@ def main():
     #    (the minus sign reflects the CCW-positive circulation convention).
     cl_kj = -2.0 * s5.gamma * geom.perimeter / s5.vinf
     passed &= check("NACA0012 a=5 Cl (KJ vs pressure)", cl_kj, s5.cl, 0.02)
+
+    # ---- Viscous boundary-layer correction (uncoupled profile drag) ----
+    print("\n-- viscous boundary-layer correction --")
+
+    # 7. Profile drag of NACA0012 at a=0. Published Cd0 (free transition) is
+    #    ~0.0080 at Re=1e6; this integral method should land close.
+    v10 = solve(geom, 0.0, re=1e6)
+    passed &= check("NACA0012 a=0 Re=1e6 Cd (profile)", v10.bl.cd, 0.0080, 0.0025)
+
+    # 8. The viscous Cd is real (positive) drag -- the whole point of the
+    #    correction. The inviscid pressure Cd stays ~0 (d'Alembert) regardless.
+    passed &= check_true("Viscous Cd is positive", v10.bl.cd > 0,
+                         f"Cd={v10.bl.cd:.4f}")
+
+    # 9. Drag falls as Reynolds number rises (thinner boundary layer).
+    v90 = solve(geom, 0.0, re=9e6)
+    passed &= check_true("Cd decreases with Reynolds number", v90.bl.cd < v10.bl.cd,
+                         f"Cd(9e6)={v90.bl.cd:.4f} < Cd(1e6)={v10.bl.cd:.4f}")
+
+    # 10. Drag rises with incidence (more suction-side adverse gradient).
+    v18 = solve(geom, 8.0, re=1e6)
+    passed &= check_true("Cd increases with angle of attack", v18.bl.cd > v10.bl.cd,
+                         f"Cd(a=8)={v18.bl.cd:.4f} > Cd(a=0)={v10.bl.cd:.4f}")
+
+    # 11. Transition moves toward the leading edge as Reynolds number rises.
+    passed &= check_true("Transition advances with Reynolds number",
+                         v90.bl.upper.x_transition < v10.bl.upper.x_transition,
+                         f"x_tr(9e6)={v90.bl.upper.x_transition:.3f} < "
+                         f"x_tr(1e6)={v10.bl.upper.x_transition:.3f}")
+
+    # 12. Integrated skin friction is a positive subset of the profile drag.
+    passed &= check_true("0 < friction drag < profile drag",
+                         0.0 < v10.bl.cd_friction < v10.bl.cd,
+                         f"Cdf={v10.bl.cd_friction:.4f}, Cd={v10.bl.cd:.4f}")
+
+    # 13. Attaching a viscous estimate must not perturb the inviscid solution.
+    passed &= check("Inviscid Cl unchanged by re=", v10.cl, s0.cl, 1e-12)
+    passed &= check("Inviscid Cd unchanged by re=", v10.cd, s0.cd, 1e-12)
+
+    # 14. Trailing-edge separation onset: attached at a=0, separated near stall.
+    v_stall = solve(geom, 14.0, re=1e6)
+    passed &= check_true("Attached at a=0, separates near stall (a=14)",
+                         (not v10.bl.separated) and v_stall.bl.separated,
+                         f"x_sep(a=14)={v_stall.bl.upper.x_separation:.3f}")
 
     print("\n" + ("All checks passed." if passed else "Some checks FAILED."))
     return 0 if passed else 1
