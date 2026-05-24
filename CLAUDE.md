@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this is
 
 `aerosim` is a 2D airfoil **potential-flow** simulator: a Hess–Smith panel-method
-solver plus an interactive matplotlib UI. The panel solver is **inviscid** by
+solver plus an interactive web UI. The panel solver is **inviscid** by
 construction — it predicts lift and surface pressure well at small angles but has
 **no drag and no stall**. A near-zero `Solution.cd` is therefore a *correctness
 check* (d'Alembert's paradox), not a bug to fix.
@@ -24,28 +24,30 @@ the d'Alembert check) vs `cd_visc` / `bl.cd` (the viscous profile-drag estimate)
 Dependencies are managed with `uv` (use it, not pip/venv directly).
 
 ```bash
-uv run python src/main.py        # launch the interactive explorer (needs a display)
 uv run python src/web.py         # launch the web UI at http://127.0.0.1:8000
 uv run python src/validate.py    # run the validation suite (the de-facto test suite)
 uv add <package>                 # add a dependency
 ```
 
-There are **two** front-ends over the same solver core: the matplotlib desktop
-explorer (`app.py`/`main.py`) and a web UI (`webapp.py` + `static/index.html`,
-launched by `web.py`). Both are thin — all physics stays in the core modules.
+The web UI (`webapp.py` + `static/index.html`, launched by `web.py`) is the only
+front-end; it is thin — all physics stays in the core modules and the solver can
+also be driven directly from a script or notebook.
 
-Headless UI smoke test (no display, e.g. CI or this agent's sandbox):
+Headless web smoke test (no browser/port, e.g. CI or this agent's sandbox) —
+importing `webapp` builds the FastAPI app, and `_pack()` is the real response
+builder behind every endpoint:
 
 ```bash
-PYTHONPATH=src MPLBACKEND=Agg uv run python -c "from aerosim.app import Explorer; Explorer().fig.savefig('snapshot.png')"
+PYTHONPATH=src uv run python -c "from aerosim.webapp import _pack; from aerosim import naca4, Geometry; print(_pack(Geometry(*naca4('2412')), 'NACA 2412', 5.0, 1e6)['coeffs'])"
 ```
 
 There is no pytest/lint setup. `src/validate.py` is the test suite: a script of
 `check()` assertions against analytical/reference aerodynamics (including a
 viscous block: profile-drag magnitude vs published NACA0012 data, plus Re/α
-trends, transition movement and stall onset). **Run it after any change to
-`panel.py`, `airfoil.py`, or `boundary_layer.py`** — it is the safety net for the
-physics, and it runs in well under a second.
+trends, transition movement and stall onset; plus `.dat` load round-trips).
+**Run it after any change to `panel.py`, `airfoil.py`, `boundary_layer.py`, or
+`airfoil_io.py`** — it is the safety net for the physics, and it runs in well
+under a second.
 
 ## Import / layout note (easy to trip on)
 
@@ -53,8 +55,8 @@ Code lives under `src/` with **no `[build-system]`** in `pyproject.toml`, so the
 package is *not* installed. Imports like `from aerosim ...` only resolve because
 running a script puts its own directory (`src/`) on `sys.path`. Consequences:
 
-- Run scripts **by path** (`uv run python src/main.py`), not as modules.
-- `uv run python -m aerosim.app` from the repo root will **fail**. Use
+- Run scripts **by path** (`uv run python src/web.py`), not as modules.
+- `uv run python -m aerosim.webapp` from the repo root will **fail**. Use
   `PYTHONPATH=src` if you need module/`-m` execution or to import from elsewhere.
 
 ## Architecture
@@ -63,19 +65,26 @@ The solve pipeline is a straight line; the data contract is the `Solution`
 dataclass:
 
 ```
-naca4(code)  ->  Geometry  ->  solve(geom, alpha[, re])  ->  Solution
-                                                              |
+naca4(code)         \
+                     >  Geometry  ->  solve(geom, alpha[, re])  ->  Solution
+airfoil_from_dat()  /                                             |
                                   velocity_field(sol, xs, ys) -> grid for streamlines
                                   boundary_layer(sol, re)     -> BoundaryLayer (profile drag)
 
-Front-ends (thin, share the core):
-  app.py / main.py   -> matplotlib desktop explorer
+Front-end (thin, over the core):
   webapp.py + static/index.html (run by web.py) -> FastAPI JSON + Plotly.js page
 ```
 
 - `src/aerosim/airfoil.py` — `naca4()` builds NACA 4-digit nodes with cosine
   spacing. **Node ordering is TE → upper surface → LE → lower surface → TE.**
   Several conventions below depend on this ordering.
+- `src/aerosim/airfoil_io.py` — loads airfoil `.dat` files into that same node
+  ordering. `parse_dat()` auto-detects Selig (already in our order) vs Lednicer
+  (upper/lower blocks, reordered), normalises to unit chord, and flips the loop
+  if a file runs lower-surface-first. `repanel()` re-samples onto cosine spacing
+  (arc-length cubic spline per surface) so solver quality doesn't depend on the
+  source file; it falls back to the raw points if a surface is too sparse.
+  Bundled samples live in `src/aerosim/airfoils/`.
 - `src/aerosim/panel.py` — the physics core. `Geometry` precomputes panel
   geometry; `induced()` is the shared influence-coefficient engine; `solve()`
   assembles and solves the linear system.
@@ -89,14 +98,14 @@ Front-ends (thin, share the core):
   Ludwieg–Tillmann `Cf`) and gets profile drag from the **Squire–Young** formula
   at the trailing edge. UI-agnostic, like the rest of the core. See its own
   conventions below.
-- `src/aerosim/app.py` — the *only* matplotlib-UI module. The `Explorer` rebuilds
-  geometry, re-solves, and redraws on every slider change.
 - `src/aerosim/webapp.py` + `src/aerosim/static/index.html` — the web front-end.
-  `webapp.py` is a thin FastAPI layer: `GET /api/solve` returns JSON (geometry,
-  `Cp` field, streamline polylines, surface pressure, coefficients) and `/` serves
-  the single-page Plotly.js UI. No physics here — it calls the same `solve()`.
-  Run it via `src/web.py` (imports `aerosim.webapp:app`, serves with uvicorn).
-- Everything outside the two front-ends is UI-agnostic, so the solver can also be
+  `webapp.py` is a thin FastAPI layer with one response shape built by `_pack()`:
+  `GET /api/solve` (NACA from sliders), `GET /api/samples` (bundled list), and
+  `POST /api/solve_custom` (a `sample` key or uploaded `dat` text → parse →
+  re-panel → solve). `/` serves the single-page Plotly.js UI. No physics here —
+  everything calls the same `solve()`. Run it via `src/web.py` (imports
+  `aerosim.webapp:app`, serves with uvicorn).
+- Everything outside the web front-end is UI-agnostic, so the solver can also be
   driven from a script or notebook.
 
 ### The method (panel.py)

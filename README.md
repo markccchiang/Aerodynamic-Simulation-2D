@@ -1,35 +1,51 @@
 # aerosim
 
 An interactive **2D airfoil aerodynamics simulator** built from scratch in Python.
-It solves the incompressible potential-flow field around a NACA airfoil with a
+It solves the incompressible potential-flow field around an airfoil with a
 **Hess–Smith panel method** and lets you explore lift, pressure, and streamlines
-in real time with sliders.
+in real time in your browser.
 
-![preview](snapshot.png)
+![preview](web-preview.png)
 
 ## Quick start
 
 ```bash
-uv run python src/main.py        # launch the interactive desktop explorer
 uv run python src/web.py         # launch the web UI -> http://127.0.0.1:8000
 uv run python src/validate.py    # run the physics validation suite
 ```
 
 Drag the sliders to change the angle of attack, Reynolds number, and the NACA
-4-digit shape (`MPXX` = camber %, camber position, thickness %). The flow field,
-surface pressure plot, and the lift/drag/moment coefficients all update live.
+4-digit shape (`MPXX` = camber %, camber position, thickness %), or load your own
+airfoil (see below). The flow field, surface pressure plot, and the
+lift/drag/moment coefficients all update live.
 
 ## Web UI
 
-The simulator also runs in the browser. `src/web.py` starts a small **FastAPI**
-backend that drives the same solver and returns JSON (geometry, a `Cp` field,
-streamlines, surface pressure, and coefficients); a single **Plotly.js** page
-renders it with live sliders. No build step — open the printed URL.
+`src/web.py` starts a small **FastAPI** backend that drives the solver and returns
+JSON (geometry, a `Cp` field, streamlines, surface pressure, and coefficients); a
+single **Plotly.js** page renders it with live sliders. No build step — open the
+printed URL. Besides the NACA sliders, the **Airfoil** panel lets you pick a
+bundled sample or **upload your own `.dat` file** (see below).
 
-![web preview](web-preview.png)
+The web page is a thin front-end — all physics lives in the UI-agnostic solver
+core, which you can also drive directly from a script or notebook.
 
-The desktop matplotlib explorer and the web UI are two thin front-ends over the
-same UI-agnostic solver core.
+## Loading airfoils (`.dat` files)
+
+Beyond NACA 4-digit shapes, aerosim loads arbitrary airfoil coordinate files in
+both common layouts — **Selig** (one `x y` per line, TE → upper → LE → lower →
+TE) and **Lednicer** (a count line then upper/lower blocks) — auto-detected. The
+points are normalised to unit chord and re-paneled onto a cosine distribution so
+the solver gets consistent resolution regardless of how the file was sampled.
+
+```python
+from aerosim import airfoil_from_dat, Geometry, solve
+x, y = airfoil_from_dat("clarky.dat")     # path or raw .dat text
+sol = solve(Geometry(x, y), alpha_deg=4.0, re=1e6)
+```
+
+A few sample airfoils ship in `src/aerosim/airfoils/` and appear in the web UI's
+dropdown; the web upload button reads any `.dat` you drop in.
 
 ## How it works
 
@@ -66,26 +82,26 @@ sol = solve(Geometry(*naca4("0012")), alpha_deg=4.0, re=1e6)
 print(sol.cd_visc)        # ~0.009 profile drag; sol.cd stays ~0 (d'Alembert)
 ```
 
-In the explorer, the **log10(Reynolds)** slider drives it live: `Cd` shows in the
-title and transition points are marked on the pressure plot.
+In the web UI, the **Reynolds** slider drives it live: `Cd` shows in the title and
+transition points are marked on the pressure plot.
 
 ## Project layout
 
 | File | Responsibility |
 |------|----------------|
 | `src/aerosim/airfoil.py`  | NACA 4-digit geometry + cosine-spaced paneling |
+| `src/aerosim/airfoil_io.py` | load `.dat` files (Selig/Lednicer), normalize + re-panel |
+| `src/aerosim/airfoils/`   | bundled sample airfoil `.dat` files |
 | `src/aerosim/panel.py`    | Hess–Smith solver — influence coefficients, Kutta, `Cp`/`Cl`/`Cm` |
 | `src/aerosim/flowfield.py`| velocity field on a grid; matplotlib-free streamline integrator |
 | `src/aerosim/boundary_layer.py` | uncoupled viscous BL correction — profile drag, transition, separation |
-| `src/aerosim/app.py`      | interactive matplotlib desktop UI |
 | `src/aerosim/webapp.py`   | FastAPI backend (JSON API) for the web UI |
 | `src/aerosim/static/index.html` | single-page Plotly.js web front-end |
-| `src/main.py`             | entry point — desktop explorer |
 | `src/web.py`              | entry point — web server (uvicorn) |
 | `src/validate.py`         | checks against thin-airfoil theory & known results |
 
-The physics core (`panel.py`) is UI-agnostic — you can drive it from a script,
-a notebook, or a future web front-end.
+The physics core is UI-agnostic — you can drive it from a script or a notebook,
+not just the web UI.
 
 ## Validation
 
@@ -108,10 +124,15 @@ For the viscous correction it also checks:
 - the inviscid `Cl`/`Cd` are untouched by enabling the viscous estimate;
 - the flow is attached at α = 0 and separates as it approaches stall.
 
+And for `.dat` loading:
+
+- Selig and Lednicer files round-trip to the same `Cl` as the direct geometry;
+- coordinates are normalized to unit chord (scale/offset invariant);
+- every bundled sample loads, re-panels, and solves.
+
 ## Possible next steps
 
 - **Couple** the boundary layer back into the inviscid solve (displacement-
   thickness transpiration) so lift and pressure react to viscosity and real
   stall appears — the current correction is one-way (drag only).
-- Load arbitrary airfoil coordinate files (`.dat`) instead of only NACA shapes.
 - Plot `Cl` vs α and the drag polar (`Cl` vs `Cd`) now that `Cd` exists.

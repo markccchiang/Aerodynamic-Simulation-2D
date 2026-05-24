@@ -2,9 +2,6 @@
 
     uv run python src/web.py                 # serve http://127.0.0.1:8000
     uv run python src/web.py --port 9000     # pick a port
-
-The interactive matplotlib explorer is still available via src/main.py; both
-drive the same solver core.
 """
 
 from __future__ import annotations
