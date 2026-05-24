@@ -10,13 +10,26 @@ in real time with sliders.
 ## Quick start
 
 ```bash
-uv run python src/main.py        # launch the interactive explorer
+uv run python src/main.py        # launch the interactive desktop explorer
+uv run python src/web.py         # launch the web UI -> http://127.0.0.1:8000
 uv run python src/validate.py    # run the physics validation suite
 ```
 
-Drag the sliders to change the angle of attack and the NACA 4-digit shape
-(`MPXX` = camber %, camber position, thickness %). The flow field, surface
-pressure plot, and the lift/moment coefficients all update live.
+Drag the sliders to change the angle of attack, Reynolds number, and the NACA
+4-digit shape (`MPXX` = camber %, camber position, thickness %). The flow field,
+surface pressure plot, and the lift/drag/moment coefficients all update live.
+
+## Web UI
+
+The simulator also runs in the browser. `src/web.py` starts a small **FastAPI**
+backend that drives the same solver and returns JSON (geometry, a `Cp` field,
+streamlines, surface pressure, and coefficients); a single **Plotly.js** page
+renders it with live sliders. No build step — open the printed URL.
+
+![web preview](web-preview.png)
+
+The desktop matplotlib explorer and the web UI are two thin front-ends over the
+same UI-agnostic solver core.
 
 ## How it works
 
@@ -62,10 +75,13 @@ title and transition points are marked on the pressure plot.
 |------|----------------|
 | `src/aerosim/airfoil.py`  | NACA 4-digit geometry + cosine-spaced paneling |
 | `src/aerosim/panel.py`    | Hess–Smith solver — influence coefficients, Kutta, `Cp`/`Cl`/`Cm` |
-| `src/aerosim/flowfield.py`| velocity field on a grid for streamlines |
+| `src/aerosim/flowfield.py`| velocity field on a grid; matplotlib-free streamline integrator |
 | `src/aerosim/boundary_layer.py` | uncoupled viscous BL correction — profile drag, transition, separation |
-| `src/aerosim/app.py`      | interactive matplotlib UI |
-| `src/main.py`             | entry point that launches the explorer |
+| `src/aerosim/app.py`      | interactive matplotlib desktop UI |
+| `src/aerosim/webapp.py`   | FastAPI backend (JSON API) for the web UI |
+| `src/aerosim/static/index.html` | single-page Plotly.js web front-end |
+| `src/main.py`             | entry point — desktop explorer |
+| `src/web.py`              | entry point — web server (uvicorn) |
 | `src/validate.py`         | checks against thin-airfoil theory & known results |
 
 The physics core (`panel.py`) is UI-agnostic — you can drive it from a script,
@@ -99,4 +115,3 @@ For the viscous correction it also checks:
   stall appears — the current correction is one-way (drag only).
 - Load arbitrary airfoil coordinate files (`.dat`) instead of only NACA shapes.
 - Plot `Cl` vs α and the drag polar (`Cl` vs `Cd`) now that `Cd` exists.
-- Port the UI to the web (the solver is already independent of matplotlib).

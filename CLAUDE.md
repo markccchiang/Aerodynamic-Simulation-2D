@@ -25,9 +25,14 @@ Dependencies are managed with `uv` (use it, not pip/venv directly).
 
 ```bash
 uv run python src/main.py        # launch the interactive explorer (needs a display)
+uv run python src/web.py         # launch the web UI at http://127.0.0.1:8000
 uv run python src/validate.py    # run the validation suite (the de-facto test suite)
 uv add <package>                 # add a dependency
 ```
+
+There are **two** front-ends over the same solver core: the matplotlib desktop
+explorer (`app.py`/`main.py`) and a web UI (`webapp.py` + `static/index.html`,
+launched by `web.py`). Both are thin — all physics stays in the core modules.
 
 Headless UI smoke test (no display, e.g. CI or this agent's sandbox):
 
@@ -62,6 +67,10 @@ naca4(code)  ->  Geometry  ->  solve(geom, alpha[, re])  ->  Solution
                                                               |
                                   velocity_field(sol, xs, ys) -> grid for streamlines
                                   boundary_layer(sol, re)     -> BoundaryLayer (profile drag)
+
+Front-ends (thin, share the core):
+  app.py / main.py   -> matplotlib desktop explorer
+  webapp.py + static/index.html (run by web.py) -> FastAPI JSON + Plotly.js page
 ```
 
 - `src/aerosim/airfoil.py` — `naca4()` builds NACA 4-digit nodes with cosine
@@ -71,17 +80,24 @@ naca4(code)  ->  Geometry  ->  solve(geom, alpha[, re])  ->  Solution
   geometry; `induced()` is the shared influence-coefficient engine; `solve()`
   assembles and solves the linear system.
 - `src/aerosim/flowfield.py` — reconstructs the velocity field on a grid from a
-  `Solution` (reuses `induced()`), masking points inside the body with NaN.
+  `Solution` (reuses `induced()`), masking points inside the body with NaN. Also
+  `streamlines_from_grid()` — a matplotlib-free streamline integrator (bilinear +
+  RK2) used by the web UI, where there is no `streamplot`.
 - `src/aerosim/boundary_layer.py` — the uncoupled viscous correction. Splits the
   surface at the stagnation point, then per surface marches **Thwaites** (laminar)
   → **Michel** transition → **Head's entrainment method** (turbulent, with
   Ludwieg–Tillmann `Cf`) and gets profile drag from the **Squire–Young** formula
   at the trailing edge. UI-agnostic, like the rest of the core. See its own
   conventions below.
-- `src/aerosim/app.py` — the *only* matplotlib-UI module. Everything else is
-  UI-agnostic, so the solver can be driven from a script, notebook, or future web
-  front-end. The `Explorer` rebuilds geometry, re-solves, and redraws on every
-  slider change.
+- `src/aerosim/app.py` — the *only* matplotlib-UI module. The `Explorer` rebuilds
+  geometry, re-solves, and redraws on every slider change.
+- `src/aerosim/webapp.py` + `src/aerosim/static/index.html` — the web front-end.
+  `webapp.py` is a thin FastAPI layer: `GET /api/solve` returns JSON (geometry,
+  `Cp` field, streamline polylines, surface pressure, coefficients) and `/` serves
+  the single-page Plotly.js UI. No physics here — it calls the same `solve()`.
+  Run it via `src/web.py` (imports `aerosim.webapp:app`, serves with uvicorn).
+- Everything outside the two front-ends is UI-agnostic, so the solver can also be
+  driven from a script or notebook.
 
 ### The method (panel.py)
 
