@@ -106,6 +106,42 @@ def main():
                          (not v10.bl.separated) and v_stall.bl.separated,
                          f"x_sep(a=14)={v_stall.bl.upper.x_separation:.3f}")
 
+    # ---- Loading airfoils from .dat coordinate files ----
+    print("\n-- .dat airfoil loading --")
+    from aerosim.airfoil_io import (
+        parse_dat, repanel, format_selig, format_lednicer, list_samples, load_sample_text,
+    )
+
+    x2, y2 = naca4("2412", n_panels=200)
+    cl_ref = solve(Geometry(x2, y2), 4.0).cl  # direct NACA, the reference
+
+    # 15. Selig round-trip: write coords -> parse -> re-panel -> solve == direct.
+    sx, sy, sname = parse_dat(format_selig(x2, y2, "NACA 2412"))
+    passed &= check("Selig .dat round-trip Cl", solve(Geometry(*repanel(sx, sy, 200)), 4.0).cl,
+                    cl_ref, 0.01)
+    passed &= check_true("Selig title line parsed", sname == "NACA 2412", repr(sname))
+
+    # 16. Lednicer format parses to the same geometry.
+    lx, ly, _ = parse_dat(format_lednicer(x2, y2, "NACA 2412"))
+    passed &= check("Lednicer .dat round-trip Cl", solve(Geometry(*repanel(lx, ly, 200)), 4.0).cl,
+                    cl_ref, 0.01)
+
+    # 17. Coordinates are normalized to unit chord (scale + offset invariant).
+    nx, ny, _ = parse_dat(format_selig(x2 * 4.0 + 3.0, y2 * 4.0, "scaled"))
+    passed &= check("Scaled/offset .dat normalized Cl", solve(Geometry(*repanel(nx, ny, 200)), 4.0).cl,
+                    cl_ref, 0.01)
+
+    # 18. Every bundled sample loads, re-panels, and solves sanely.
+    samples = list_samples()
+    passed &= check_true("Bundled samples present", len(samples) >= 1,
+                         str([k for k, _ in samples]))
+    all_ok = True
+    for key, _name in samples:
+        gx, gy = repanel(*parse_dat(load_sample_text(key))[:2], 200)
+        s = solve(Geometry(gx, gy), 5.0, re=1e6)
+        all_ok &= bool(np.isfinite(s.cl) and s.bl.cd > 0)
+    passed &= check_true("All bundled samples solve (finite Cl, Cd>0)", all_ok)
+
     print("\n" + ("All checks passed." if passed else "Some checks FAILED."))
     return 0 if passed else 1
 

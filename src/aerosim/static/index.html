@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="icon" href="data:," />
 <title>aerosim — airfoil flow explorer</title>
 <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
 <style>
@@ -36,6 +37,16 @@
   button.reset { width: 100%; margin-top: 4px; padding: 8px; border: 1px solid var(--line);
     background: #232b3e; color: var(--ink); border-radius: 8px; cursor: pointer; font-size: 13px; }
   button.reset:hover { background: #2c3650; }
+  select { width: 100%; padding: 7px 8px; border-radius: 8px; border: 1px solid var(--line);
+    background: #232b3e; color: var(--ink); font-size: 13px; }
+  label.upload { display: block; margin-top: 10px; }
+  label.upload span { display: block; text-align: center; padding: 8px; border-radius: 8px;
+    border: 1px dashed #475066; color: var(--muted);
+    cursor: pointer; font-size: 12.5px; }
+  label.upload span:hover { color: var(--ink); border-color: #5b86d6; }
+  .loaded { margin-top: 8px; font-size: 12px; color: #8fd0ff; min-height: 16px; }
+  .ctl.disabled { opacity: .38; }
+  .ctl.disabled input { pointer-events: none; }
   a { color: #8fd0ff; }
 </style>
 </head>
@@ -52,6 +63,16 @@
   </div>
 
   <div class="side">
+    <div class="card">
+      <h2>Airfoil</h2>
+      <select id="source"><option value="naca">NACA 4-digit (sliders)</option></select>
+      <label class="upload">
+        <input type="file" id="upload" accept=".dat,.txt" hidden />
+        <span>Upload a .dat file…</span>
+      </label>
+      <div id="loaded" class="loaded"></div>
+    </div>
+
     <div class="card">
       <h2>Controls</h2>
       <div class="ctl" data-key="alpha">
@@ -144,7 +165,7 @@ function drawFlow(d) {
     margin: { l: 44, r: 10, t: 34, b: 38 },
     paper_bgcolor: '#1a2030', plot_bgcolor: '#1a2030',
     font: { color: '#cdd6e6' }, showlegend: false,
-    title: { text: `NACA ${d.code}   α = ${d.alpha.toFixed(1)}°   Re = ${d.re.toExponential(1).replace('e+','e')}`,
+    title: { text: `${d.name}   α = ${d.alpha.toFixed(1)}°   Re = ${d.re.toExponential(1).replace('e+','e')}`,
              font: { size: 14 } },
     xaxis: { title: 'x / c', range: [-0.6, 1.6], zeroline: false, gridcolor: '#283047' },
     yaxis: { title: 'y / c', range: [-0.7, 0.7], scaleanchor: 'x', scaleratio: 1,
@@ -179,7 +200,7 @@ function drawCp(d) {
 
 function drawCoeffs(d) {
   const c = d.coeffs;
-  document.getElementById('c-code').textContent = 'NACA ' + d.code;
+  document.getElementById('c-code').textContent = d.name;
   document.getElementById('c-cl').textContent  = c.cl.toFixed(3);
   document.getElementById('c-cd').textContent  = c.cd_visc.toFixed(4);
   document.getElementById('c-cm').textContent  = c.cm.toFixed(3);
@@ -189,22 +210,93 @@ function drawCoeffs(d) {
   else { sep.className = 'badge attached'; sep.textContent = 'attached'; }
 }
 
+// ---- airfoil source: NACA sliders, a bundled sample, or an upload ----
+let source = { type: 'naca' };
+const nacaKeys = ['m', 'p', 't'];
+
+function setNacaEnabled(on) {
+  document.querySelectorAll('.ctl').forEach(el => {
+    if (nacaKeys.includes(el.dataset.key))
+      el.classList.toggle('disabled', !on);
+  });
+}
+
+async function loadSamples() {
+  try {
+    const res = await fetch('/api/samples');
+    const { samples } = await res.json();
+    const sel = document.getElementById('source');
+    for (const s of samples) {
+      const o = document.createElement('option');
+      o.value = 'sample:' + s.key; o.textContent = s.name;
+      sel.appendChild(o);
+    }
+  } catch (e) { console.error(e); }
+}
+
+document.getElementById('source').addEventListener('change', (e) => {
+  const v = e.target.value;
+  if (v === 'naca') { source = { type: 'naca' }; setNacaEnabled(true); }
+  else if (v.startsWith('sample:')) {
+    source = { type: 'sample', sample: v.slice(7), name: e.target.selectedOptions[0].textContent };
+    setNacaEnabled(false);
+  }
+  document.getElementById('loaded').textContent = '';
+  schedule();
+});
+
+document.getElementById('upload').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    source = { type: 'custom', dat: reader.result, name: file.name.replace(/\.[^.]+$/, '') };
+    // Add/replace an "uploaded" option and select it.
+    const sel = document.getElementById('source');
+    let opt = sel.querySelector('option[value="upload"]');
+    if (!opt) { opt = document.createElement('option'); opt.value = 'upload'; sel.appendChild(opt); }
+    opt.textContent = '↑ ' + file.name;
+    sel.value = 'upload';
+    setNacaEnabled(false);
+    schedule();
+  };
+  reader.readAsText(file);
+  e.target.value = '';  // allow re-uploading the same file
+});
+
 // ---- fetch + render (debounced, drops stale responses) ----
 let reqId = 0, timer = null;
 async function solve() {
   const c = controls();
-  const params = new URLSearchParams({ ...c, panels: PANELS });
   const mine = ++reqId;
   try {
-    const res = await fetch('/api/solve?' + params);
-    if (!res.ok) throw new Error('HTTP ' + res.status);
+    let res;
+    if (source.type === 'naca') {
+      res = await fetch('/api/solve?' + new URLSearchParams({ ...c, panels: PANELS }));
+    } else {
+      const body = { alpha: c.alpha, re_log: c.re_log, panels: PANELS, name: source.name };
+      if (source.type === 'sample') body.sample = source.sample; else body.dat = source.dat;
+      res = await fetch('/api/solve_custom', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      });
+    }
+    if (!res.ok) {
+      const msg = await res.json().catch(() => ({}));
+      throw new Error(msg.detail || ('HTTP ' + res.status));
+    }
     const d = await res.json();
     if (mine !== reqId) return;            // a newer request superseded this one
-    // Mirror the server's camber-position rule (P snaps to 1 when M>0, P=0).
-    const pIn = document.querySelector('.ctl[data-key="p"] input');
-    if (parseInt(pIn.value, 10) !== d.p) { pIn.value = d.p; refreshLabels(); }
+    if (source.type === 'naca') {
+      // Mirror the server's camber-position rule (P snaps to 1 when M>0, P=0).
+      const pIn = document.querySelector('.ctl[data-key="p"] input');
+      if (parseInt(pIn.value, 10) !== d.p) { pIn.value = d.p; refreshLabels(); }
+    } else {
+      document.getElementById('loaded').textContent =
+        `loaded ${d.n_points} points → ${d.geom.x.length - 1} panels`;
+    }
     drawFlow(d); drawCp(d); drawCoeffs(d);
   } catch (e) {
+    document.getElementById('loaded').textContent = '⚠ ' + e.message;
     console.error(e);
   }
 }
@@ -215,9 +307,14 @@ document.getElementById('reset').addEventListener('click', () => {
   document.querySelectorAll('.ctl').forEach(el => {
     el.querySelector('input').value = DEFAULTS[el.dataset.key];
   });
+  source = { type: 'naca' };
+  document.getElementById('source').value = 'naca';
+  document.getElementById('loaded').textContent = '';
+  setNacaEnabled(true);
   schedule();
 });
 
+loadSamples();
 refreshLabels();
 solve();
 </script>
