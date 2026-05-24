@@ -1,0 +1,11 @@
+[project]
+name = "aerosim"
+version = "0.1.0"
+description = "Interactive 2D airfoil potential-flow (panel method) simulator"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "matplotlib>=3.10.9",
+    "numpy>=2.4.6",
+    "scipy>=1.17.1",
+]
