@@ -53,11 +53,14 @@ class Explorer:
         s_p = self.fig.add_axes([0.10, 0.086, 0.55, 0.03], facecolor=axc)
         s_t = self.fig.add_axes([0.10, 0.043, 0.55, 0.03], facecolor=axc)
 
+        # Fine steps so dragging updates smoothly. (A matplotlib Slider only
+        # fires its callback when the *snapped* value changes, so a coarse
+        # valstep makes the plot look frozen mid-drag.)
         self.sl_alpha = Slider(s_alpha, "Angle of attack (deg)", -15, 15,
-                               valinit=5.0, valstep=0.5)
-        # Reynolds number on a log slider; the viscous drag estimate uses it.
-        self.sl_re = Slider(s_re, "log10(Reynolds)", 4.5, 7.5,
-                            valinit=6.0, valstep=0.1)
+                               valinit=5.0, valstep=0.1)
+        # Reynolds number lives on a log slider; its readout (set in update())
+        # shows the actual Re, not the log10 exponent.
+        self.sl_re = Slider(s_re, "Reynolds", 4.5, 7.5, valinit=6.0, valstep=0.05)
         self.sl_m = Slider(s_m, "Max camber  M (%)", 0, 9, valinit=2, valstep=1)
         self.sl_p = Slider(s_p, "Camber pos.  P (x/10)", 0, 9, valinit=4, valstep=1)
         self.sl_t = Slider(s_t, "Thickness  XX (%)", 4, 30, valinit=12, valstep=1)
@@ -88,6 +91,8 @@ class Explorer:
         code = self._code()
         alpha = float(self.sl_alpha.val)
         re = 10.0 ** float(self.sl_re.val)
+        # Show the actual Reynolds number rather than the slider's log10 value.
+        self.sl_re.valtext.set_text(f"{re:.1e}")
 
         geom = Geometry(*naca4(code, n_panels=self.n_panels))
         sol = solve(geom, alpha, re=re)
