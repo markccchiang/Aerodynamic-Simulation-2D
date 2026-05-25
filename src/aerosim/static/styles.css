@@ -1,0 +1,41 @@
+:root { --bg:#0f1320; --panel:#1a2030; --ink:#e8eaed; --muted:#9aa6bf; --line:#2b3447; }
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+header { padding: 14px 20px 6px; }
+header h1 { margin: 0; font-size: 18px; font-weight: 650; }
+header .sub { color: var(--muted); font-size: 12.5px; margin-top: 2px; }
+.wrap { display: flex; gap: 14px; padding: 10px 16px 16px; flex-wrap: wrap; }
+.plots { flex: 1 1 640px; min-width: 340px; display: flex; gap: 12px; flex-wrap: wrap; }
+#flow { flex: 2 1 460px; min-width: 320px; height: 460px; background: var(--panel); border-radius: 10px; }
+#cp   { flex: 1 1 280px; min-width: 260px; height: 460px; background: var(--panel); border-radius: 10px; }
+.side { flex: 0 0 280px; min-width: 250px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; margin-bottom: 12px; }
+.card h2 { margin: 0 0 10px; font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.ctl { margin: 12px 0; }
+.ctl .row { display: flex; justify-content: space-between; font-size: 12.5px; margin-bottom: 4px; }
+.ctl .row b { font-weight: 600; }
+.ctl .row .val { color: #8fd0ff; font-variant-numeric: tabular-nums; }
+input[type=range] { width: 100%; accent-color: #4a9eff; }
+.coef { display: grid; grid-template-columns: auto auto; gap: 6px 14px; font-variant-numeric: tabular-nums; }
+.coef .k { color: var(--muted); }
+.coef .v { text-align: right; font-weight: 600; }
+.badge { display:inline-block; margin-top:10px; padding:3px 9px; border-radius:6px; font-size:12px; font-weight:600; }
+.badge.attached { background:#173a2a; color:#7ee2a8; }
+.badge.sep { background:#43221f; color:#ff9c8a; }
+button.reset { width: 100%; margin-top: 4px; padding: 8px; border: 1px solid var(--line);
+  background: #232b3e; color: var(--ink); border-radius: 8px; cursor: pointer; font-size: 13px; }
+button.reset:hover { background: #2c3650; }
+select { width: 100%; padding: 7px 8px; border-radius: 8px; border: 1px solid var(--line);
+  background: #232b3e; color: var(--ink); font-size: 13px; }
+label.upload { display: block; margin-top: 10px; }
+label.upload span { display: block; text-align: center; padding: 8px; border-radius: 8px;
+  border: 1px dashed #475066; color: var(--muted);
+  cursor: pointer; font-size: 12.5px; }
+label.upload span:hover { color: var(--ink); border-color: #5b86d6; }
+.loaded { margin-top: 8px; font-size: 12px; color: #8fd0ff; min-height: 16px; }
+.ctl.disabled { opacity: .38; }
+.ctl.disabled input { pointer-events: none; }
+a { color: #8fd0ff; }
