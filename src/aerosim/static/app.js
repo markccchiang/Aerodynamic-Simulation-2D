@@ -2,6 +2,8 @@ const DEFAULTS = { alpha: 5, re_log: 6, m: 2, p: 4, t: 12 };
 const PANELS = 160;
 const flowCfg = { responsive: true, displayModeBar: false };
 const cpCfg   = { responsive: true, displayModeBar: false };
+const polarCfg = { responsive: true, displayModeBar: false };
+let polarData = null, polarSig = null, lastSolve = null;
 
 // ---- read control values ----
 function controls() {
@@ -99,6 +101,99 @@ function drawCoeffs(d) {
     else { cpl.textContent = `⚠ coupled — not converged in ${c.n_iter} iterations (near separation)`; }
 }
 
+// ---- lift curve & drag polar (alpha sweep) ----
+const AX = { gridcolor: '#283047', zeroline: true, zerolinecolor: '#445566' };
+function polarBaseLayout(title) {
+    return {
+        margin: { l: 50, r: 12, t: 32, b: 42 },
+        paper_bgcolor: '#1a2030', plot_bgcolor: '#1a2030', font: { color: '#cdd6e6' },
+        title: { text: title, font: { size: 13 } },
+    };
+}
+
+function drawPolar() {
+    if (!polarData) return;
+    const d = polarData;
+    const two = !!d.coupled;                               // inviscid + coupled overlay?
+    const op = (lastSolve && polarSig === polarSignature()) ? lastSolve : null;
+    const now = (x, y) => ({ type: 'scatter', mode: 'markers', name: 'now', x: [x], y: [y],
+        marker: { color: '#ffd166', size: 11, line: { color: '#11141f', width: 1.5 } } });
+    const base = (x, y, name, color) => ({ type: 'scatter', mode: 'lines+markers', x, y,
+        name, line: { color, width: 2 }, marker: { size: 4 } });
+
+    const lc = [base(d.alpha, d.uncoupled.cl, two ? 'inviscid' : 'C_l', '#4a9eff')];
+    if (two) lc.push(base(d.alpha, d.coupled.cl, 'coupled', '#ff6b5e'));
+    if (op) lc.push(now(op.alpha, op.coeffs.cl));
+    const lcLayout = polarBaseLayout('Lift curve');
+    lcLayout.xaxis = { title: 'α (°)', ...AX };
+    lcLayout.yaxis = { title: 'C<sub>l</sub>', ...AX };
+    lcLayout.legend = { x: 0.02, y: 0.98, xanchor: 'left', yanchor: 'top', font: { size: 11 } };
+    Plotly.react('liftcurve', lc, lcLayout, polarCfg);
+
+    const dp = [base(d.uncoupled.cd, d.uncoupled.cl, two ? 'inviscid' : 'polar', '#4a9eff')];
+    if (two) dp.push(base(d.coupled.cd, d.coupled.cl, 'coupled', '#ff6b5e'));
+    if (op) dp.push(now(op.coeffs.cd_visc, op.coeffs.cl));
+    const dpLayout = polarBaseLayout('Drag polar');
+    dpLayout.xaxis = { title: 'C<sub>d</sub> (profile)', gridcolor: '#283047', zeroline: false, rangemode: 'tozero' };
+    dpLayout.yaxis = { title: 'C<sub>l</sub>', ...AX };
+    dpLayout.legend = { x: 0.98, y: 0.02, xanchor: 'right', yanchor: 'bottom', font: { size: 11 } };
+    Plotly.react('dragpolar', dp, dpLayout, polarCfg);
+}
+
+// A fingerprint of every input the polar depends on *except* alpha, so we know
+// when an already-computed sweep has gone stale (vs. just moving the operating
+// point as alpha changes).
+function polarSignature() {
+    const c = controls();
+    const couple = document.getElementById('couple').checked ? 1 : 0;
+    const base = `|re${c.re_log}|cp${couple}`;
+    if (source.type === 'naca') return `naca:${c.m},${c.p},${c.t}${base}`;
+    if (source.type === 'sample') return `sample:${source.sample}${base}`;
+    return `custom:${source.name}${base}`;
+}
+
+async function computePolar() {
+    const c = controls();
+    const couple = document.getElementById('couple').checked;
+    const note = document.getElementById('polar-note');
+    note.textContent = 'computing…';
+    try {
+        let res;
+        if (source.type === 'naca') {
+            res = await fetch('/api/polar?' + new URLSearchParams({
+                m: c.m, p: c.p, t: c.t, re_log: c.re_log, panels: PANELS, couple,
+            }));
+        } else {
+            const body = { re_log: c.re_log, panels: PANELS, couple, name: source.name };
+            if (source.type === 'sample') body.sample = source.sample; else body.dat = source.dat;
+            res = await fetch('/api/polar_custom', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+            });
+        }
+        if (!res.ok) {
+            const msg = await res.json().catch(() => ({}));
+            throw new Error(msg.detail || ('HTTP ' + res.status));
+        }
+        polarData = await res.json();
+        polarSig = polarSignature();
+        const re = polarData.re.toExponential(1).replace('e+', 'e');
+        note.textContent = `${polarData.alpha.length} points · Re = ${re}` +
+            (polarData.coupled ? ' · inviscid vs coupled' : '');
+        drawPolar();
+    } catch (e) {
+        note.textContent = '⚠ ' + e.message;
+        console.error(e);
+    }
+}
+
+// After each live solve: if a polar exists, either refresh the operating-point
+// marker (settings unchanged) or flag it stale (settings changed).
+function syncPolar() {
+    if (!polarData) return;
+    if (polarSig === polarSignature()) drawPolar();
+    else document.getElementById('polar-note').textContent = '⟳ settings changed — click to recompute';
+}
+
 // ---- airfoil source: NACA sliders, a bundled sample, or an upload ----
 let source = { type: 'naca' };
 const nacaKeys = ['m', 'p', 't'];
@@ -185,6 +280,7 @@ async function solve() {
                 `loaded ${d.n_points} points → ${d.geom.x.length - 1} panels`;
         }
         drawFlow(d); drawCp(d); drawCoeffs(d);
+        lastSolve = d; syncPolar();
     } catch (e) {
         document.getElementById('loaded').textContent = '⚠ ' + e.message;
         console.error(e);
@@ -194,6 +290,7 @@ function schedule() { refreshLabels(); clearTimeout(timer); timer = setTimeout(s
 
 document.querySelectorAll('.ctl input').forEach(inp => inp.addEventListener('input', schedule));
 document.getElementById('couple').addEventListener('change', schedule);
+document.getElementById('polar-btn').addEventListener('click', computePolar);
 document.getElementById('reset').addEventListener('click', () => {
     document.querySelectorAll('.ctl').forEach(el => {
         el.querySelector('input').value = DEFAULTS[el.dataset.key];
@@ -203,6 +300,9 @@ document.getElementById('reset').addEventListener('click', () => {
     document.getElementById('source').value = 'naca';
     document.getElementById('loaded').textContent = '';
     setNacaEnabled(true);
+    polarData = null; polarSig = null;
+    document.getElementById('polar-note').textContent = '';
+    Plotly.purge('liftcurve'); Plotly.purge('dragpolar');
     schedule();
 });
 

@@ -116,10 +116,13 @@ Front-end (thin, over the core):
   `webapp.py` is a thin FastAPI layer with one response shape built by `_pack()`:
   `GET /api/solve` (NACA from sliders), `GET /api/samples` (bundled list), and
   `POST /api/solve_custom` (a `sample` key or uploaded `dat` text → parse →
-  re-panel → solve). All three accept a `couple` flag forwarded to `solve()`; the
-  UI exposes it as a "Viscous coupling" checkbox. `/` serves the single-page
-  Plotly.js UI (`index.html` + `styles.css` + `app.js` under `static/`). No physics
-  here — everything calls the same `solve()`. Run it via `src/web.py` (imports
+  re-panel → solve). All accept a `couple` flag forwarded to `solve()`; the UI
+  exposes it as a "Viscous coupling" checkbox. `GET /api/polar` + `POST
+  /api/polar_custom` (built by `_polar()`) sweep alpha into lift-curve / drag-
+  polar arrays, returning an `uncoupled` branch plus a `coupled` branch when
+  asked, for the UI's "Compute polar" panel. `/` serves the single-page Plotly.js
+  UI (`index.html` + `styles.css` + `app.js` under `static/`). No physics here —
+  everything calls the same `solve()`. Run it via `src/web.py` (imports
   `aerosim.webapp:app`, serves with uvicorn).
 - Everything outside the web front-end is UI-agnostic, so the solver can also be
   driven from a script or notebook.

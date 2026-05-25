@@ -105,6 +105,57 @@ def _pack(geom: Geometry, name: str, alpha: float, re: float,
     }
 
 
+def _custom_geom(dat, sample, panels):
+    """Build a Geometry from uploaded ``dat`` text or a bundled ``sample`` key.
+
+    Returns ``(geom, n_points, parsed_name)``. Raises ``HTTPException(400)`` if
+    neither input is given; let parse/geometry errors propagate to the caller.
+    """
+    if sample:
+        text = load_sample_text(sample)
+    elif dat:
+        text = dat
+    else:
+        raise HTTPException(400, "provide either 'dat' text or a 'sample' key")
+    x, y, parsed_name = parse_dat(text)
+    rx, ry = repanel(x, y, int(np.clip(panels, 40, 400)))
+    return Geometry(rx, ry), int(len(x)), parsed_name
+
+
+def _polar(geom: Geometry, name: str, re: float, couple: bool,
+           amin: float, amax: float, astep: float) -> dict:
+    """Sweep angle of attack into lift-curve / drag-polar arrays.
+
+    Always returns the ``uncoupled`` branch (inviscid ``cl`` with the uncoupled
+    profile ``cd``); when ``couple`` is set it also returns a ``coupled`` branch
+    so the front-end can overlay the viscous decambering. The step is floored and
+    the point count capped to keep a stray request from launching a huge sweep.
+    """
+    astep = max(abs(astep), 0.25)
+    n = min(max(int(round((amax - amin) / astep)) + 1, 2), 200)
+    alphas = [round(amin + i * astep, 3) for i in range(n)]
+    base = {"cl": [], "cd": [], "cm": []}
+    cpl = {"cl": [], "cd": [], "cm": [], "converged": []}
+    for a in alphas:
+        s = solve(geom, a, re=re)
+        base["cl"].append(round(float(s.cl), 4))
+        base["cd"].append(round(float(s.cd_visc), 5))
+        base["cm"].append(round(float(s.cm_qc), 4))
+        if couple:
+            c = solve(geom, a, re=re, couple=True)
+            cpl["cl"].append(round(float(c.cl), 4))
+            cpl["cd"].append(round(float(c.cd_visc), 5))
+            cpl["cm"].append(round(float(c.cm_qc), 4))
+            cpl["converged"].append(bool(c.converged))
+    return {
+        "name": name,
+        "re": float(re),
+        "alpha": alphas,
+        "uncoupled": base,
+        "coupled": cpl if couple else None,
+    }
+
+
 class CustomRequest(BaseModel):
     """An uploaded .dat file (``dat``) or a bundled airfoil (``sample``)."""
 
@@ -115,6 +166,20 @@ class CustomRequest(BaseModel):
     re_log: float = 6.0
     panels: int = 160
     couple: bool = False
+
+
+class PolarRequest(BaseModel):
+    """Sweep request for a loaded airfoil's lift curve / drag polar."""
+
+    dat: str | None = None
+    sample: str | None = None
+    name: str | None = None
+    re_log: float = 6.0
+    panels: int = 160
+    couple: bool = False
+    amin: float = -6.0
+    amax: float = 14.0
+    astep: float = 1.0
 
 
 def create_app() -> FastAPI:
@@ -148,15 +213,7 @@ def create_app() -> FastAPI:
     def api_solve_custom(req: CustomRequest):
         """Solve a loaded airfoil: a bundled ``sample`` or uploaded ``dat`` text."""
         try:
-            if req.sample:
-                text = load_sample_text(req.sample)
-            elif req.dat:
-                text = req.dat
-            else:
-                raise HTTPException(400, "provide either 'dat' text or a 'sample' key")
-            x, y, parsed_name = parse_dat(text)
-            rx, ry = repanel(x, y, int(np.clip(req.panels, 40, 400)))
-            geom = Geometry(rx, ry)
+            geom, n_points, parsed_name = _custom_geom(req.dat, req.sample, req.panels)
         except HTTPException:
             raise
         except Exception as exc:  # parse/geometry failure -> friendly 400
@@ -165,8 +222,38 @@ def create_app() -> FastAPI:
         name = req.name or parsed_name or "loaded airfoil"
         resp = _pack(geom, name, req.alpha, 10.0**req.re_log, req.couple)
         resp["source"] = "custom"
-        resp["n_points"] = int(len(x))
+        resp["n_points"] = n_points
         return resp
+
+    @app.get("/api/polar")
+    def api_polar(
+        m: int = 2,
+        p: int = 4,
+        t: int = 12,
+        re_log: float = 6.0,
+        panels: int = 160,
+        couple: bool = False,
+        amin: float = -6.0,
+        amax: float = 14.0,
+        astep: float = 1.0,
+    ):
+        """Lift curve / drag polar for a NACA 4-digit airfoil (alpha sweep)."""
+        code, _p = _naca_code(m, p, t)
+        geom = Geometry(*naca4(code, n_panels=panels))
+        return _polar(geom, f"NACA {code}", 10.0**re_log, couple, amin, amax, astep)
+
+    @app.post("/api/polar_custom")
+    def api_polar_custom(req: PolarRequest):
+        """Lift curve / drag polar for a loaded airfoil (alpha sweep)."""
+        try:
+            geom, _n, parsed_name = _custom_geom(req.dat, req.sample, req.panels)
+        except HTTPException:
+            raise
+        except Exception as exc:  # parse/geometry failure -> friendly 400
+            raise HTTPException(400, f"could not load airfoil: {exc}")
+
+        name = req.name or parsed_name or "loaded airfoil"
+        return _polar(geom, name, 10.0**req.re_log, req.couple, req.amin, req.amax, req.astep)
 
     @app.get("/")
     def index():

@@ -40,6 +40,14 @@ label.upload span { display: block; text-align: center; padding: 8px; border-rad
     cursor: pointer; font-size: 12.5px; }
 label.upload span:hover { color: var(--ink); border-color: #5b86d6; }
 .loaded { margin-top: 8px; font-size: 12px; color: #8fd0ff; min-height: 16px; }
+.polar { padding: 0 16px 18px; }
+.polar-head { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 8px; }
+.polar-head h2 { margin: 0; font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.polar-head button.reset { width: auto; margin-top: 0; padding: 7px 12px; }
+.polar-head .loaded { margin-top: 0; }
+.polar-plots { display: flex; gap: 12px; flex-wrap: wrap; }
+#liftcurve, #dragpolar { flex: 1 1 360px; min-width: 300px; height: 360px;
+    background: var(--panel); border-radius: 10px; }
 .ctl.disabled { opacity: .38; }
 .ctl.disabled input { pointer-events: none; }
 a { color: #8fd0ff; }

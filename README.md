@@ -27,6 +27,12 @@ single **Plotly.js** page renders it with live sliders. No build step — open t
 printed URL. Besides the NACA sliders, the **Airfoil** panel lets you pick a
 bundled sample or **upload your own `.dat` file** (see below).
 
+Below the flow view, a **Lift curve & drag polar** panel sweeps the angle of
+attack (the **Compute polar** button) and plots `Cl` vs α and the drag polar
+(`Cl` vs `Cd`), marking the current operating point. With **Viscous coupling**
+on, it overlays the inviscid and coupled curves so the viscous decambering is
+visible directly.
+
 The web page is a thin front-end — all physics lives in the UI-agnostic solver
 core, which you can also drive directly from a script or notebook.
 
@@ -163,5 +169,5 @@ And for `.dat` loading:
 - **Semi-inverse coupling** to push the viscous solve through separation toward
   real post-stall behaviour — the current `couple=True` is *direct* coupling, so
   it captures viscous decambering but not massive separation.
-- Plot `Cl` vs α and the drag polar (`Cl` vs `Cd`) now that `Cd` exists — and
-  overlay the inviscid vs coupled lift curves to show the decambering.
+- A drag breakdown (friction vs form vs induced) and a `Cl`/`Cd` (L/D) readout
+  on the polar.
