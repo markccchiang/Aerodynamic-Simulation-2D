@@ -1,25 +1,33 @@
-:root { --bg:#0f1320; --panel:#1a2030; --ink:#e8eaed; --muted:#9aa6bf; --line:#2b3447; }
+:root { --bg:#0f1320; --panel:#1a2030; --ink:#e8eaed; --muted:#9aa6bf; --line:#2b3447;
+    /* Plots fill the viewport height (less header/padding), capped so the flow
+       field doesn't letterbox on very tall screens. */
+    --plot-h: clamp(320px, calc(100vh - 200px), 700px); }
 * { box-sizing: border-box; }
 body {
     margin: 0; background: var(--bg); color: var(--ink);
     font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
-header { padding: 14px 20px 6px; }
+header { padding: 12px 18px 4px; }
 header h1 { margin: 0; font-size: 18px; font-weight: 650; }
 header .sub { color: var(--muted); font-size: 12.5px; margin-top: 2px; }
-.wrap { display: flex; gap: 14px; padding: 10px 16px 16px; flex-wrap: wrap; }
-.plots { flex: 1 1 640px; min-width: 340px; display: flex; gap: 12px; flex-wrap: wrap; }
-#flow { flex: 2 1 460px; min-width: 320px; height: 460px; background: var(--panel); border-radius: 10px; }
-#cp   { flex: 1 1 280px; min-width: 260px; height: 460px; background: var(--panel); border-radius: 10px; }
-.side { flex: 0 0 280px; min-width: 250px; }
-.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; margin-bottom: 12px; }
-.card h2 { margin: 0 0 10px; font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
-.ctl { margin: 12px 0; }
-.ctl .row { display: flex; justify-content: space-between; font-size: 12.5px; margin-bottom: 4px; }
+
+/* Main dashboard row: plots fill the viewport height, sidebar beside them. */
+.wrap { display: flex; gap: 14px; padding: 10px 16px 12px; align-items: stretch; }
+.plots { flex: 1 1 0; min-width: 0; display: flex; gap: 12px; }
+#flow { flex: 2 1 0; min-width: 0; }
+#cp   { flex: 1 1 0; min-width: 0; }
+#flow, #cp { height: var(--plot-h); background: var(--panel); border-radius: 10px; }
+.side { flex: 0 0 290px; height: var(--plot-h); overflow-y: auto; }
+
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 12px 14px; margin-bottom: 10px; }
+.card h2 { margin: 0 0 9px; font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.ctl { margin: 9px 0; }
+.ctl .row { display: flex; justify-content: space-between; font-size: 12.5px; margin-bottom: 3px; }
 .ctl .row b { font-weight: 600; }
 .ctl .row .val { color: #8fd0ff; font-variant-numeric: tabular-nums; }
 input[type=range] { width: 100%; accent-color: #4a9eff; }
-.coef { display: grid; grid-template-columns: auto auto; gap: 6px 14px; font-variant-numeric: tabular-nums; }
+.coef { display: grid; grid-template-columns: auto auto; gap: 5px 14px; font-variant-numeric: tabular-nums; }
 .coef .k { color: var(--muted); }
 .coef .v { text-align: right; font-weight: 600; }
 .badge { display:inline-block; margin-top:10px; padding:3px 9px; border-radius:6px; font-size:12px; font-weight:600; }
@@ -40,14 +48,30 @@ label.upload span { display: block; text-align: center; padding: 8px; border-rad
     cursor: pointer; font-size: 12.5px; }
 label.upload span:hover { color: var(--ink); border-color: #5b86d6; }
 .loaded { margin-top: 8px; font-size: 12px; color: #8fd0ff; min-height: 16px; }
-.polar { padding: 0 16px 18px; }
-.polar-head { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 8px; }
+
+/* Collapsible lift-curve / drag-polar panel below the dashboard. */
+.polar { padding: 2px 16px 18px; }
+.polar-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
 .polar-head h2 { margin: 0; font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.polar-toggle { background: none; border: none; color: var(--muted); cursor: pointer;
+    font-size: 14px; padding: 2px 4px; line-height: 1; }
+.polar-toggle:hover { color: var(--ink); }
 .polar-head button.reset { width: auto; margin-top: 0; padding: 7px 12px; }
 .polar-head .loaded { margin-top: 0; }
 .polar-plots { display: flex; gap: 12px; flex-wrap: wrap; }
-#liftcurve, #dragpolar { flex: 1 1 360px; min-width: 300px; height: 360px;
+#liftcurve, #dragpolar { flex: 1 1 360px; min-width: 300px; height: 340px;
     background: var(--panel); border-radius: 10px; }
+.polar.collapsed .polar-plots { display: none; }
+
 .ctl.disabled { opacity: .38; }
 .ctl.disabled input { pointer-events: none; }
 a { color: #8fd0ff; }
+
+/* Narrow screens: stack everything and let the page scroll normally. */
+@media (max-width: 820px) {
+    .wrap { flex-direction: column; }
+    .plots { flex-direction: column; }
+    #flow { height: 56vh; min-height: 300px; }
+    #cp { height: 44vh; min-height: 280px; }
+    .side { flex: 1 1 auto; height: auto; overflow: visible; }
+}

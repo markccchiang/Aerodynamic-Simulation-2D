@@ -111,6 +111,15 @@ function polarBaseLayout(title) {
     };
 }
 
+function isPolarOpen() {
+    return !document.getElementById('polar').classList.contains('collapsed');
+}
+function setPolarOpen(open) {
+    document.getElementById('polar').classList.toggle('collapsed', !open);
+    document.getElementById('polar-toggle').textContent = open ? '▾' : '▸';
+    if (open) drawPolar();   // (re)draw now the divs are visible and have a size
+}
+
 function drawPolar() {
     if (!polarData) return;
     const d = polarData;
@@ -179,7 +188,7 @@ async function computePolar() {
         const re = polarData.re.toExponential(1).replace('e+', 'e');
         note.textContent = `${polarData.alpha.length} points · Re = ${re}` +
             (polarData.coupled ? ' · inviscid vs coupled' : '');
-        drawPolar();
+        setPolarOpen(true);
     } catch (e) {
         note.textContent = '⚠ ' + e.message;
         console.error(e);
@@ -190,7 +199,7 @@ async function computePolar() {
 // marker (settings unchanged) or flag it stale (settings changed).
 function syncPolar() {
     if (!polarData) return;
-    if (polarSig === polarSignature()) drawPolar();
+    if (polarSig === polarSignature()) { if (isPolarOpen()) drawPolar(); }
     else document.getElementById('polar-note').textContent = '⟳ settings changed — click to recompute';
 }
 
@@ -291,6 +300,11 @@ function schedule() { refreshLabels(); clearTimeout(timer); timer = setTimeout(s
 document.querySelectorAll('.ctl input').forEach(inp => inp.addEventListener('input', schedule));
 document.getElementById('couple').addEventListener('change', schedule);
 document.getElementById('polar-btn').addEventListener('click', computePolar);
+document.getElementById('polar-toggle').addEventListener('click', () => {
+    if (isPolarOpen()) setPolarOpen(false);
+    else if (polarData) setPolarOpen(true);
+    else document.getElementById('polar-note').textContent = 'click "Compute polar" first';
+});
 document.getElementById('reset').addEventListener('click', () => {
     document.querySelectorAll('.ctl').forEach(el => {
         el.querySelector('input').value = DEFAULTS[el.dataset.key];
@@ -302,6 +316,7 @@ document.getElementById('reset').addEventListener('click', () => {
     setNacaEnabled(true);
     polarData = null; polarSig = null;
     document.getElementById('polar-note').textContent = '';
+    setPolarOpen(false);
     Plotly.purge('liftcurve'); Plotly.purge('dragpolar');
     schedule();
 });
