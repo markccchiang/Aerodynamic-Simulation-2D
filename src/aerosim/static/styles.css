@@ -30,6 +30,10 @@ button.reset { width: 100%; margin-top: 4px; padding: 8px; border: 1px solid var
 button.reset:hover { background: #2c3650; }
 select { width: 100%; padding: 7px 8px; border-radius: 8px; border: 1px solid var(--line);
     background: #232b3e; color: var(--ink); font-size: 13px; }
+label.toggle { display: flex; align-items: center; gap: 8px; margin: 10px 0 4px;
+    font-size: 13px; cursor: pointer; }
+label.toggle input { accent-color: #4a9eff; width: 15px; height: 15px; }
+label.toggle small { color: var(--muted); }
 label.upload { display: block; margin-top: 10px; }
 label.upload span { display: block; text-align: center; padding: 8px; border-radius: 8px;
     border: 1px dashed #475066; color: var(--muted);

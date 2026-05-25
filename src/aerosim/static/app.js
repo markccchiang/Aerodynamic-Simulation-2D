@@ -93,6 +93,10 @@ function drawCoeffs(d) {
     const sep = document.getElementById('c-sep');
     if (c.separated) { sep.className = 'badge sep'; sep.textContent = 'trailing-edge separation'; }
     else { sep.className = 'badge attached'; sep.textContent = 'attached'; }
+    const cpl = document.getElementById('c-couple');
+    if (!c.coupled) { cpl.textContent = ''; }
+    else if (c.converged) { cpl.textContent = `coupled — converged in ${c.n_iter} iterations`; }
+    else { cpl.textContent = `⚠ coupled — not converged in ${c.n_iter} iterations (near separation)`; }
 }
 
 // ---- airfoil source: NACA sliders, a bundled sample, or an upload ----
@@ -153,13 +157,14 @@ document.getElementById('upload').addEventListener('change', (e) => {
 let reqId = 0, timer = null;
 async function solve() {
     const c = controls();
+    const couple = document.getElementById('couple').checked;
     const mine = ++reqId;
     try {
         let res;
         if (source.type === 'naca') {
-            res = await fetch('/api/solve?' + new URLSearchParams({ ...c, panels: PANELS }));
+            res = await fetch('/api/solve?' + new URLSearchParams({ ...c, panels: PANELS, couple }));
         } else {
-            const body = { alpha: c.alpha, re_log: c.re_log, panels: PANELS, name: source.name };
+            const body = { alpha: c.alpha, re_log: c.re_log, panels: PANELS, name: source.name, couple };
             if (source.type === 'sample') body.sample = source.sample; else body.dat = source.dat;
             res = await fetch('/api/solve_custom', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
@@ -188,10 +193,12 @@ async function solve() {
 function schedule() { refreshLabels(); clearTimeout(timer); timer = setTimeout(solve, 60); }
 
 document.querySelectorAll('.ctl input').forEach(inp => inp.addEventListener('input', schedule));
+document.getElementById('couple').addEventListener('change', schedule);
 document.getElementById('reset').addEventListener('click', () => {
     document.querySelectorAll('.ctl').forEach(el => {
         el.querySelector('input').value = DEFAULTS[el.dataset.key];
     });
+    document.getElementById('couple').checked = false;
     source = { type: 'naca' };
     document.getElementById('source').value = 'naca';
     document.getElementById('loaded').textContent = '';

@@ -1,11 +1,17 @@
-"""Viscous boundary-layer correction (uncoupled with the inviscid solve).
+"""Viscous boundary-layer correction (uncoupled by default; optional coupling).
 
 Given an inviscid :class:`~aerosim.panel.Solution`, march an *integral*
 boundary-layer method along each surface from the stagnation point to the
 trailing edge and estimate the **profile (viscous) drag** the potential-flow
-model cannot produce. This is a one-way correction: it reads the inviscid edge
-velocities but does **not** feed back into the panel solve, so lift, ``Cp`` and
-the d'Alembert ``cd`` check are left exactly as they were.
+model cannot produce. On its own this is a one-way correction: it reads the
+inviscid edge velocities but does **not** feed back into the panel solve, so
+lift, ``Cp`` and the d'Alembert ``cd`` check are left exactly as they were.
+
+For *two-way* viscous-inviscid coupling, :func:`transpiration_velocity` turns
+the displacement thickness into an equivalent wall-blowing velocity that
+``panel.solve(..., couple=True)`` feeds back into the flow-tangency boundary
+condition and iterates to convergence. Coupling then *does* change ``cl``/``cp``
+(viscous decambering); see :mod:`aerosim.panel`.
 
 Method (the classic "XFOIL-lite" chain):
 
@@ -40,6 +46,11 @@ _TURB_SEP_H = 2.6
 # artifact of the integral method, not a real separated region; only count
 # separation forward of this station as a genuine "separated" flag.
 _SEP_X_LIMIT = 0.90
+# Coupling: the same cusped-TE artifact makes delta*/Ue (and hence the
+# transpiration velocity) spike over the last few percent chord. Taper the
+# coupled wall-blowing smoothly to zero from this station to the TE so that
+# artifact is not fed back into the inviscid solve (it diverges the iteration).
+_TE_TAPER_X = 0.95
 
 
 # --------------------------------------------------------------------- results
@@ -265,7 +276,10 @@ def _split_surfaces(sol: "Solution"):
     x_lo = np.concatenate([[x_stag], geom.xc[lo]])
     ue_lo = np.concatenate([[0.0], np.abs(vt[lo])])
 
-    return (s_up, x_up, ue_up), (s_lo, x_lo, ue_lo)
+    # ``up``/``lo`` are the control-point indices for entries ``[1:]`` of each
+    # run (entry 0 is the prepended stagnation point), so callers can scatter a
+    # per-run quantity back onto the control points.
+    return (s_up, x_up, ue_up, up), (s_lo, x_lo, ue_lo, lo)
 
 
 def _friction_drag(upper: SurfaceBL, lower: SurfaceBL) -> float:
@@ -282,6 +296,47 @@ def _friction_drag(upper: SurfaceBL, lower: SurfaceBL) -> float:
         ue_mid = 0.5 * (surf.ue[1:] + surf.ue[:-1])
         total += float(np.sum(cf_mid * ue_mid**2 * dx))
     return total
+
+
+def _smooth121(a: np.ndarray, passes: int = 2) -> np.ndarray:
+    """Light endpoint-preserving 1-2-1 smoothing (kills panel-to-panel noise)."""
+    a = np.asarray(a, dtype=float).copy()
+    for _ in range(passes):
+        if len(a) < 3:
+            break
+        a[1:-1] = 0.25 * a[:-2] + 0.5 * a[1:-1] + 0.25 * a[2:]
+    return a
+
+
+def transpiration_velocity(sol: "Solution", bl: BoundaryLayer) -> np.ndarray:
+    """Wall-blowing velocity that models the boundary-layer displacement effect.
+
+    The displacement thickness is equivalent to a small normal velocity emitted
+    from the surface, ``v_n = d(Ue * delta_star) / ds`` (the gradient of the
+    "mass-defect" source ``m = Ue * delta_star`` along the downstream arc
+    length). Returns one value per control point, in the *outward* normal
+    direction and in ``Vinf`` units, ready to drop into the panel solver's
+    flow-tangency right-hand side for viscous-inviscid coupling. Both runs start
+    at the stagnation point where ``m = 0``.
+
+    The mass-defect source is lightly smoothed and the result is tapered to zero
+    through the cusped trailing edge (``_TE_TAPER_X`` .. TE), where ``delta*``/
+    ``Ue`` are unreliable; without that, the TE spike diverges the coupling.
+
+    This is what turns the otherwise one-way :func:`boundary_layer` estimate into
+    a two-way coupling when ``panel.solve(..., couple=True)`` is used.
+    """
+    n = sol.geom.n
+    vn = np.zeros(n)
+    (_su, _xu, _ueu, i_up), (_sl, _xl, _uel, i_lo) = _split_surfaces(sol)
+    for surf, idx in ((bl.upper, i_up), (bl.lower, i_lo)):
+        m = _smooth121(surf.ue * surf.delta_star)   # mass-defect source, m(0)=0
+        dm_ds = np.gradient(m, surf.s)              # downstream arc-length deriv.
+        v = dm_ds[1:]                               # drop the prepended stagnation
+        x = surf.x[1:]                              # control-point x/c for this run
+        taper = np.clip((1.0 - x) / (1.0 - _TE_TAPER_X), 0.0, 1.0)
+        vn[idx] = v * taper
+    return np.where(np.isfinite(vn), vn, 0.0)
 
 
 def boundary_layer(sol: "Solution", re: float = 1e6) -> BoundaryLayer:
@@ -303,7 +358,7 @@ def boundary_layer(sol: "Solution", re: float = 1e6) -> BoundaryLayer:
         raise ValueError(f"Reynolds number must be positive, got {re}")
     nu = 1.0 / re  # non-dimensional kinematic viscosity (c = Vinf = 1)
 
-    (s_up, x_up, ue_up), (s_lo, x_lo, ue_lo) = _split_surfaces(sol)
+    (s_up, x_up, ue_up, _), (s_lo, x_lo, ue_lo, _) = _split_surfaces(sol)
     upper = _march_surface("upper", s_up, x_up, ue_up, nu)
     lower = _march_surface("lower", s_lo, x_lo, ue_lo, nu)
 

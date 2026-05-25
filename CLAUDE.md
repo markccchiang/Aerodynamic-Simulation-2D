@@ -10,14 +10,25 @@ construction — it predicts lift and surface pressure well at small angles but 
 **no drag and no stall**. A near-zero `Solution.cd` is therefore a *correctness
 check* (d'Alembert's paradox), not a bug to fix.
 
-On top of that core there is an **optional, uncoupled viscous boundary-layer
-correction** (`boundary_layer.py`) that estimates *profile drag* the inviscid
-model cannot. It reads the inviscid edge velocities and marches an integral BL
-method, but does **not** feed back into the panel solve — so `cl`, `cp` and the
-d'Alembert `cd` are unchanged whether or not it runs. Pass `re=` to `solve()` to
-turn it on; the result lands in `Solution.bl` and `Solution.cd_visc`. Two `cd`s
-therefore coexist and mean different things: `cd` (inviscid pressure drag, ≈ 0,
-the d'Alembert check) vs `cd_visc` / `bl.cd` (the viscous profile-drag estimate).
+On top of that core there is an **optional viscous boundary-layer correction**
+(`boundary_layer.py`) that estimates *profile drag* the inviscid model cannot. It
+reads the inviscid edge velocities and marches an integral BL method. It runs in
+one of two modes, both switched on by passing `re=` to `solve()`:
+
+- **Uncoupled (default).** A one-way post-process: it does **not** feed back into
+  the panel solve, so `cl`, `cp` and the d'Alembert `cd` are unchanged whether or
+  not it runs. The result lands in `Solution.bl` and `Solution.cd_visc`.
+- **Coupled (`solve(..., couple=True)`).** *Two-way* viscous–inviscid coupling:
+  the boundary-layer displacement is fed back as a wall-transpiration velocity and
+  iterated to convergence, so `cl`/`cp` now **do** react to viscosity (lift drops
+  a little, the suction peak softens). This is *direct* coupling — robust for
+  attached and mildly separated flow, **not** post-stall. See the coupling notes
+  below.
+
+Two `cd`s therefore coexist and mean different things: `cd` (inviscid pressure
+drag, ≈ 0 in the uncoupled case, the d'Alembert check; a small nonzero *form*
+drag once coupled, because transpiration makes the body slightly "leaky") vs
+`cd_visc` / `bl.cd` (the viscous profile-drag estimate).
 
 ## Commands
 
@@ -86,24 +97,29 @@ Front-end (thin, over the core):
   source file; it falls back to the raw points if a surface is too sparse.
   Bundled samples live in `src/aerosim/airfoils/`.
 - `src/aerosim/panel.py` — the physics core. `Geometry` precomputes panel
-  geometry; `induced()` is the shared influence-coefficient engine; `solve()`
-  assembles and solves the linear system.
+  geometry; `induced()` is the shared influence-coefficient engine; `_solve_panels()`
+  assembles and solves the linear system once (optionally with a wall-transpiration
+  RHS); `solve()` is the public entry point and `_solve_coupled()` runs the
+  viscous–inviscid iteration when `couple=True`.
 - `src/aerosim/flowfield.py` — reconstructs the velocity field on a grid from a
   `Solution` (reuses `induced()`), masking points inside the body with NaN. Also
   `streamlines_from_grid()` — a matplotlib-free streamline integrator (bilinear +
   RK2) used by the web UI, where there is no `streamplot`.
-- `src/aerosim/boundary_layer.py` — the uncoupled viscous correction. Splits the
+- `src/aerosim/boundary_layer.py` — the viscous correction. Splits the
   surface at the stagnation point, then per surface marches **Thwaites** (laminar)
   → **Michel** transition → **Head's entrainment method** (turbulent, with
   Ludwieg–Tillmann `Cf`) and gets profile drag from the **Squire–Young** formula
-  at the trailing edge. UI-agnostic, like the rest of the core. See its own
-  conventions below.
+  at the trailing edge. `transpiration_velocity()` exposes the displacement effect
+  as a wall-blowing field for the optional coupling. UI-agnostic, like the rest of
+  the core. See its own conventions below.
 - `src/aerosim/webapp.py` + `src/aerosim/static/index.html` — the web front-end.
   `webapp.py` is a thin FastAPI layer with one response shape built by `_pack()`:
   `GET /api/solve` (NACA from sliders), `GET /api/samples` (bundled list), and
   `POST /api/solve_custom` (a `sample` key or uploaded `dat` text → parse →
-  re-panel → solve). `/` serves the single-page Plotly.js UI. No physics here —
-  everything calls the same `solve()`. Run it via `src/web.py` (imports
+  re-panel → solve). All three accept a `couple` flag forwarded to `solve()`; the
+  UI exposes it as a "Viscous coupling" checkbox. `/` serves the single-page
+  Plotly.js UI (`index.html` + `styles.css` + `app.js` under `static/`). No physics
+  here — everything calls the same `solve()`. Run it via `src/web.py` (imports
   `aerosim.webapp:app`, serves with uvicorn).
 - Everything outside the web front-end is UI-agnostic, so the solver can also be
   driven from a script or notebook.
@@ -137,11 +153,25 @@ single source of truth for the singularity math — change formulas here only.
 
 ### The viscous correction (boundary_layer.py)
 
-- **Uncoupled by design.** It is a one-way post-process: inviscid `Solution` →
-  edge velocities → BL → drag. It never modifies `sigma`/`gamma`/`cp`/`cl`. If you
-  ever want stall/`Cl`-correction you'd need *viscous–inviscid coupling*
-  (displacement-thickness transpiration), which is a much bigger, convergence-
-  sensitive change — don't bolt it on here without re-thinking the validation.
+- **Uncoupled by default; opt-in coupling.** With `couple=False` it is a one-way
+  post-process: inviscid `Solution` → edge velocities → BL → drag, and it never
+  modifies `sigma`/`gamma`/`cp`/`cl`. With `solve(..., couple=True)` it becomes
+  *two-way* (see the coupling notes below). Keep the uncoupled path byte-for-byte
+  unchanged — `validate.py` asserts `re=` alone does not perturb the inviscid
+  `cl`/`cd` (the d'Alembert teaching point depends on it).
+- **The coupling is *direct* transpiration with under-relaxation.**
+  `transpiration_velocity()` turns the displacement thickness into a wall-blowing
+  velocity `v_n = d(Ue·δ*)/ds`; `_solve_coupled()` adds it to the flow-tangency RHS
+  (`b[:n] += exterior_side·v_n`) and iterates `solve → BL → v_n → solve` under
+  relaxation `_COUPLE_RELAX` (0.25 — 0.4 oscillates under heavy loading) until `cl`
+  settles, reporting `Solution.coupled`/`n_iter`/`converged`. The same cusped-TE
+  artifact that the `separated` flag guards against also spikes `v_n` near the TE,
+  so the blowing is smoothed and **tapered to zero from `_TE_TAPER_X` (0.95 c) to
+  the TE** — without that taper the iteration diverges. Direct coupling cannot push
+  through massive separation: near/after stall it won't converge (`converged=False`
+  is expected there), and capturing real post-stall would need a semi-inverse
+  scheme. Once coupled, the d'Alembert `cd` is no longer ~0 — a small *form* drag
+  appears because transpiration makes the body slightly leaky; that is expected.
 - **Non-dimensionalisation.** Everything is in chord (`c = 1`) and `Vinf` units,
   so kinematic viscosity is simply `nu = 1/Re` and edge velocity is `Ue/Vinf`.
   Reynolds number is **chord-based**.
@@ -157,8 +187,11 @@ single source of truth for the singularity math — change formulas here only.
 - **Validation is mostly trends, not tight tolerances.** Integral BL methods are
   approximate; `validate.py` checks one banded absolute `Cd` against published
   data and otherwise asserts physical *trends* (Cd↓ with Re, Cd↑ with α,
-  transition advancing with Re, friction < profile drag). Keep new checks in that
-  spirit.
+  transition advancing with Re, friction < profile drag). The coupling block adds
+  trend checks too: coupling reduces `cl` (decambering) and softens the suction
+  peak, the lift loss grows as Re falls, a symmetric airfoil at α=0 gains no
+  spurious lift, and an attached case converges. Keep new checks in that spirit,
+  and pick coupled test cases that actually converge so they're deterministic.
 
 ### Gotchas
 

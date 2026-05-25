@@ -48,9 +48,14 @@ def _round_list(a, decimals=4):
     return np.round(np.asarray(a, dtype=float), decimals).tolist()
 
 
-def _pack(geom: Geometry, name: str, alpha: float, re: float) -> dict:
-    """Solve and assemble the JSON payload the front-end plots (source-agnostic)."""
-    sol = solve(geom, alpha, re=re)
+def _pack(geom: Geometry, name: str, alpha: float, re: float,
+          couple: bool = False) -> dict:
+    """Solve and assemble the JSON payload the front-end plots (source-agnostic).
+
+    ``couple=True`` runs the two-way viscous-inviscid coupling, so ``cl``/``cp``
+    react to viscosity; otherwise the boundary-layer estimate is uncoupled.
+    """
+    sol = solve(geom, alpha, re=re, couple=couple)
     bl = sol.bl
 
     xs = np.linspace(*XLIM, FIELD_NX)
@@ -93,6 +98,9 @@ def _pack(geom: Geometry, name: str, alpha: float, re: float) -> dict:
             "x_tr_upper": opt(bl.upper.x_transition),
             "x_tr_lower": opt(bl.lower.x_transition),
             "separated": bool(bl.separated),
+            "coupled": bool(sol.coupled),
+            "converged": bool(sol.converged),
+            "n_iter": int(sol.n_iter),
         },
     }
 
@@ -106,6 +114,7 @@ class CustomRequest(BaseModel):
     alpha: float = 5.0
     re_log: float = 6.0
     panels: int = 160
+    couple: bool = False
 
 
 def create_app() -> FastAPI:
@@ -119,11 +128,12 @@ def create_app() -> FastAPI:
         alpha: float = 5.0,
         re_log: float = 6.0,
         panels: int = 160,
+        couple: bool = False,
     ):
         """Solve a NACA 4-digit airfoil (from the sliders)."""
         code, p = _naca_code(m, p, t)
         geom = Geometry(*naca4(code, n_panels=panels))
-        resp = _pack(geom, f"NACA {code}", alpha, 10.0**re_log)
+        resp = _pack(geom, f"NACA {code}", alpha, 10.0**re_log, couple)
         resp["source"] = "naca"
         resp["code"] = code
         resp["p"] = int(p)
@@ -153,7 +163,7 @@ def create_app() -> FastAPI:
             raise HTTPException(400, f"could not load airfoil: {exc}")
 
         name = req.name or parsed_name or "loaded airfoil"
-        resp = _pack(geom, name, req.alpha, 10.0**req.re_log)
+        resp = _pack(geom, name, req.alpha, 10.0**req.re_log, req.couple)
         resp["source"] = "custom"
         resp["n_points"] = int(len(x))
         return resp

@@ -120,7 +120,10 @@ class Solution:
     cd: float               # pressure drag (≈0; a numerical accuracy check)
     cm_qc: float            # moment coefficient about the quarter chord
     re: float | None = None         # Reynolds number, if a viscous estimate was run
-    bl: "BoundaryLayer | None" = None  # viscous boundary-layer estimate (uncoupled)
+    bl: "BoundaryLayer | None" = None  # viscous boundary-layer estimate
+    coupled: bool = False           # True if the BL was coupled back into the solve
+    n_iter: int = 0                 # coupling iterations taken (0 if uncoupled)
+    converged: bool = True          # whether the coupling loop reached its tolerance
 
     @property
     def cd_visc(self) -> float | None:
@@ -128,15 +131,23 @@ class Solution:
         return None if self.bl is None else self.bl.cd
 
 
-def solve(
-    geom: Geometry, alpha_deg: float, vinf: float = 1.0, re: float | None = None
-) -> Solution:
-    """Solve the panel system at the given angle of attack.
+# Defaults for the viscous-inviscid coupling iteration (see ``_solve_coupled``).
+# relax=0.25 converges in ~10-40 iters across the usable range; 0.4 oscillates
+# under heavier loading (higher alpha / lower Re), so stay conservative.
+_COUPLE_MAX_ITER = 80
+_COUPLE_RELAX = 0.25   # under-relaxation on the transpiration field
+_COUPLE_TOL = 2e-5     # convergence on the change in cl between iterations
 
-    If ``re`` (chord-based Reynolds number) is given, an *uncoupled* viscous
-    boundary-layer estimate is attached as ``Solution.bl`` and the profile drag
-    is available via ``Solution.cd_visc``. The inviscid result — ``cl``, ``cp``
-    and the d'Alembert pressure-drag ``cd`` — is unchanged by this.
+
+def _solve_panels(
+    geom: Geometry, alpha_deg: float, vinf: float, vn: np.ndarray | None = None
+) -> Solution:
+    """Assemble and solve the panel system once.
+
+    ``vn`` is an optional wall-transpiration velocity (length ``N``, outward
+    positive, ``Vinf`` units) added to the flow-tangency condition for viscous
+    coupling; ``None`` is the pure inviscid no-penetration condition. The
+    returned :class:`Solution` carries only the inviscid fields — no ``bl``.
     """
     a = np.radians(alpha_deg)
     uinf, winf = vinf * np.cos(a), vinf * np.sin(a)
@@ -159,10 +170,14 @@ def solve(
     A = np.zeros((n + 1, n + 1))
     b = np.zeros(n + 1)
 
-    # Flow tangency (no penetration) at every control point.
+    # Flow tangency at every control point. Inviscid: no penetration (RHS 0).
+    # Coupled: the wall emits the transpiration velocity ``vn`` outward, which
+    # in the local +y normal frame is ``exterior_side * vn``.
     A[:n, :n] = us_x * nx[:, None] + us_y * ny[:, None]
     A[:n, n] = (uv_x * nx[:, None] + uv_y * ny[:, None]).sum(axis=1)
     b[:n] = -(uinf * nx + winf * ny)
+    if vn is not None:
+        b[:n] += s * vn
 
     # Kutta condition: equal-and-opposite tangential velocity on the two
     # trailing-edge panels (the first and last in the node ordering).
@@ -177,8 +192,8 @@ def solve(
         (uinf * tx[i0] + winf * ty[i0]) + (uinf * tx[i1] + winf * ty[i1])
     )
 
-    sol = np.linalg.solve(A, b)
-    sigma, gamma = sol[:n], float(sol[n])
+    raw = np.linalg.solve(A, b)
+    sigma, gamma = raw[:n], float(raw[n])
 
     # Surface velocity and pressure at the control points.
     vx = us_x @ sigma + gamma * uv_x.sum(axis=1) + uinf
@@ -196,8 +211,80 @@ def solve(
         cp * geom.length * ((geom.xc - 0.25) * geom.nouty - geom.yc * geom.noutx)
     )
 
-    sol = Solution(geom, alpha_deg, vinf, sigma, gamma, cp, vt, cl, cd, cm_qc)
+    return Solution(geom, alpha_deg, vinf, sigma, gamma, cp, vt, cl, cd, cm_qc)
 
+
+def _solve_coupled(
+    geom: Geometry,
+    alpha_deg: float,
+    vinf: float,
+    re: float,
+    max_iter: int = _COUPLE_MAX_ITER,
+    relax: float = _COUPLE_RELAX,
+    tol: float = _COUPLE_TOL,
+) -> Solution:
+    """Viscous-inviscid coupling by under-relaxed transpiration iteration.
+
+    Repeatedly: solve the panels, march the boundary layer on the resulting edge
+    velocities, convert its displacement thickness to a wall-blowing velocity,
+    and re-solve with that blowing fed into the flow-tangency condition. The
+    transpiration field is under-relaxed for stability; iteration stops when the
+    lift coefficient settles. This is *direct* coupling — robust for attached and
+    mildly separated flow, but it will not converge through massive (post-stall)
+    separation.
+    """
+    from .boundary_layer import boundary_layer, transpiration_velocity
+
+    sol = _solve_panels(geom, alpha_deg, vinf, vn=None)  # inviscid starting point
+    vn = np.zeros(geom.n)
+    last_cl = sol.cl
+    converged = False
+    it = 0
+    for it in range(1, max_iter + 1):
+        bl = boundary_layer(sol, re)
+        vn = (1.0 - relax) * vn + relax * transpiration_velocity(sol, bl)
+        sol = _solve_panels(geom, alpha_deg, vinf, vn=vn)
+        if abs(sol.cl - last_cl) < tol:
+            converged = True
+            break
+        last_cl = sol.cl
+
+    sol.re = re
+    sol.bl = boundary_layer(sol, re)  # final BL on the converged field
+    sol.coupled = True
+    sol.n_iter = it
+    sol.converged = converged
+    return sol
+
+
+def solve(
+    geom: Geometry,
+    alpha_deg: float,
+    vinf: float = 1.0,
+    re: float | None = None,
+    couple: bool = False,
+) -> Solution:
+    """Solve the panel system at the given angle of attack.
+
+    If ``re`` (chord-based Reynolds number) is given, a viscous boundary-layer
+    estimate is attached as ``Solution.bl`` and the profile drag is available via
+    ``Solution.cd_visc``.
+
+    * ``couple=False`` (default) — the estimate is *uncoupled*: a one-way
+      post-process. The inviscid result (``cl``, ``cp``, the d'Alembert ``cd``)
+      is left exactly as it was.
+    * ``couple=True`` — *two-way* viscous-inviscid coupling (requires ``re``).
+      The boundary-layer displacement is fed back into the solve via wall
+      transpiration and iterated, so ``cl``/``cp`` react to viscosity (lift drops
+      a little, the suction peak softens). ``Solution.coupled``/``n_iter``/
+      ``converged`` report the iteration.
+    """
+    if couple:
+        if re is None:
+            raise ValueError("couple=True requires a Reynolds number (re=).")
+        return _solve_coupled(geom, alpha_deg, vinf, re)
+
+    sol = _solve_panels(geom, alpha_deg, vinf, vn=None)
     if re is not None:
         from .boundary_layer import boundary_layer  # local import: avoid a cycle
 

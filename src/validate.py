@@ -106,6 +106,48 @@ def main():
                          (not v10.bl.separated) and v_stall.bl.separated,
                          f"x_sep(a=14)={v_stall.bl.upper.x_separation:.3f}")
 
+    # ---- Viscous-inviscid coupling (two-way; couple=True) ----
+    print("\n-- viscous-inviscid coupling --")
+
+    # C1. Coupling needs a Reynolds number to march the boundary layer.
+    try:
+        solve(geom, 4.0, couple=True)
+        raised = False
+    except ValueError:
+        raised = True
+    passed &= check_true("couple=True without re= raises", raised)
+
+    # C2. Two-way coupling reduces lift (viscous decambering) versus the inviscid
+    #     solve, and the iteration converges for an attached case. The uncoupled
+    #     default (couple=False) still returns the inviscid cl unchanged.
+    a_c = 5.0
+    inv = solve(cam, a_c, re=1e6)                 # uncoupled: cl == inviscid
+    cpl = solve(cam, a_c, re=1e6, couple=True)    # two-way coupled
+    passed &= check_true("Coupled solve converged", cpl.converged,
+                         f"n_iter={cpl.n_iter}")
+    passed &= check_true("Coupling reduces lift (decambering)",
+                         0.02 < (inv.cl - cpl.cl) < 0.20,
+                         f"cl {inv.cl:.4f} -> {cpl.cl:.4f} (dCl={cpl.cl - inv.cl:+.4f})")
+
+    # C3. The suction peak softens under coupling (least-negative Cp rises).
+    passed &= check_true("Coupling softens the suction peak",
+                         cpl.cp.min() > inv.cp.min(),
+                         f"min Cp {inv.cp.min():.3f} -> {cpl.cp.min():.3f}")
+
+    # C4. A symmetric airfoil at zero lift gains no spurious lift from coupling.
+    sym_c = solve(geom, 0.0, re=1e6, couple=True)
+    passed &= check("Coupled symmetric a=0 Cl ~ 0", sym_c.cl, 0.0, 1e-3)
+
+    # C5. The lift loss grows as Reynolds number falls (thicker boundary layer).
+    d_hi = solve(cam, 4.0, re=3e6).cl - solve(cam, 4.0, re=3e6, couple=True).cl
+    d_lo = solve(cam, 4.0, re=1e6).cl - solve(cam, 4.0, re=1e6, couple=True).cl
+    passed &= check_true("Lift loss grows as Re falls", d_lo > d_hi > 0,
+                         f"dCl(1e6)={d_lo:.4f} > dCl(3e6)={d_hi:.4f}")
+
+    # C6. Profile drag is still a positive estimate after coupling.
+    passed &= check_true("Coupled profile Cd positive", cpl.cd_visc > 0,
+                         f"cd_visc={cpl.cd_visc:.4f}")
+
     # ---- Loading airfoils from .dat coordinate files ----
     print("\n-- .dat airfoil loading --")
     from aerosim.airfoil_io import (

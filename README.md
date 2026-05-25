@@ -73,8 +73,8 @@ velocities it marches an integral boundary-layer method along each surface —
 (turbulent) — and applies the **Squire–Young** formula at the trailing edge to get
 drag. It also locates transition and flags trailing-edge separation.
 
-It is *one-way*: lift, pressure, and the d'Alembert check are unchanged. Pass a
-chord-based Reynolds number to switch it on:
+By default this is *one-way* (uncoupled): lift, pressure, and the d'Alembert check
+are unchanged. Pass a chord-based Reynolds number to switch it on:
 
 ```python
 from aerosim import naca4, Geometry, solve
@@ -84,6 +84,27 @@ print(sol.cd_visc)        # ~0.009 profile drag; sol.cd stays ~0 (d'Alembert)
 
 In the web UI, the **Reynolds** slider drives it live: `Cd` shows in the title and
 transition points are marked on the pressure plot.
+
+### Two-way viscous–inviscid coupling
+
+Add `couple=True` to feed the boundary layer **back into** the solve. The
+displacement thickness is modelled as a small wall-blowing velocity
+(`v_n = d(Ue·δ*)/ds`) added to the flow-tangency condition, and the solve is
+iterated to convergence. Now lift and pressure **react to viscosity** — the
+airfoil effectively sees a slightly thicker, decambered shape, so lift drops a
+little and the suction peak softens (real "viscous decambering"):
+
+```python
+inv = solve(Geometry(*naca4("2412")), alpha_deg=5.0, re=1e6)
+vis = solve(Geometry(*naca4("2412")), alpha_deg=5.0, re=1e6, couple=True)
+print(inv.cl, vis.cl)          # e.g. 0.858 -> 0.772
+print(vis.coupled, vis.n_iter, vis.converged)   # True 14 True
+```
+
+This is **direct** coupling: robust for attached and mildly separated flow, and it
+reports `Solution.converged`. It is *not* a post-stall model — through massive
+separation the direct iteration won't converge (that needs a semi-inverse scheme).
+In the web UI, tick **Viscous coupling** to drive it live.
 
 ## Project layout
 
@@ -121,8 +142,15 @@ For the viscous correction it also checks:
 - profile `Cd` of NACA 0012 ≈ published data at Re = 10⁶;
 - `Cd` falls with Reynolds number and rises with angle of attack;
 - transition advances toward the leading edge as Reynolds number rises;
-- the inviscid `Cl`/`Cd` are untouched by enabling the viscous estimate;
+- the inviscid `Cl`/`Cd` are untouched by the uncoupled estimate (`couple=False`);
 - the flow is attached at α = 0 and separates as it approaches stall.
+
+For the two-way coupling (`couple=True`):
+
+- coupling reduces `Cl` (viscous decambering) and softens the suction peak;
+- the lift loss grows as Reynolds number falls (thicker boundary layer);
+- a symmetric airfoil at α = 0 gains no spurious lift, and an attached case
+  converges; `couple=True` without a Reynolds number raises.
 
 And for `.dat` loading:
 
@@ -132,7 +160,8 @@ And for `.dat` loading:
 
 ## Possible next steps
 
-- **Couple** the boundary layer back into the inviscid solve (displacement-
-  thickness transpiration) so lift and pressure react to viscosity and real
-  stall appears — the current correction is one-way (drag only).
-- Plot `Cl` vs α and the drag polar (`Cl` vs `Cd`) now that `Cd` exists.
+- **Semi-inverse coupling** to push the viscous solve through separation toward
+  real post-stall behaviour — the current `couple=True` is *direct* coupling, so
+  it captures viscous decambering but not massive separation.
+- Plot `Cl` vs α and the drag polar (`Cl` vs `Cd`) now that `Cd` exists — and
+  overlay the inviscid vs coupled lift curves to show the decambering.
