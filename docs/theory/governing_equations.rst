@@ -131,6 +131,53 @@ tangential velocity :math:`V_t`, this collapses to
 :math:`C_p = 1 - (V_t / V_\infty)^2`, which is exactly what
 :func:`aerosim.panel._solve_panels` evaluates at every control point.
 
+A representative inviscid solution from `aerosim` is shown below: the
+streamline pattern around a NACA 2412 at :math:`\alpha = 5°` and the
+corresponding surface :math:`C_p` distribution. The upper surface
+(lower curve) shows a strong suction peak near the leading edge; the
+lower surface (upper curve) carries higher pressure. Their integrated
+difference is the lift.
+
+.. plot::
+   :alt: Streamlines and surface pressure coefficient for NACA 2412 at alpha=5 deg.
+   :caption: Inviscid potential flow around a NACA 2412 at α = 5°: streamlines
+       on the left, surface :math:`C_p` (negative upward, aerodynamic
+       convention) on the right.
+
+   import numpy as np
+   import matplotlib.pyplot as plt
+
+   from aerosim import naca4, Geometry, solve, velocity_field
+
+   geom = Geometry(*naca4("2412"))
+   sol = solve(geom, alpha_deg=5.0)
+
+   xs = np.linspace(-0.5, 1.5, 280)
+   ys = np.linspace(-0.6, 0.6, 180)
+   X, Y, U, V = velocity_field(sol, xs, ys)
+
+   fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(8.4, 3.4))
+
+   speed = np.hypot(U, V)
+   ax1.streamplot(X, Y, U, V, density=1.6, color=speed, cmap="viridis",
+                  linewidth=0.7, arrowsize=0.7)
+   ax1.fill(geom.x, geom.y, color="0.15", zorder=5)
+   ax1.set_xlim(-0.4, 1.4)
+   ax1.set_ylim(-0.5, 0.5)
+   ax1.set_aspect("equal")
+   ax1.set_xlabel("x / c")
+   ax1.set_ylabel("y / c")
+   ax1.set_title("Streamlines (NACA 2412, α = 5°)")
+
+   ax2.plot(geom.xc, sol.cp, lw=1.2)
+   ax2.axhline(0, color="0.5", lw=0.6)
+   ax2.invert_yaxis()
+   ax2.set_xlabel("x / c")
+   ax2.set_ylabel(r"$C_p$")
+   ax2.set_title(f"Surface $C_p$  ($C_\\ell$ = {sol.cl:.3f})")
+
+   plt.tight_layout()
+
 The aerodynamic coefficients follow by integrating the pressure
 distribution around the contour:
 

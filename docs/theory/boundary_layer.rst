@@ -44,6 +44,42 @@ The shape factor :math:`H` is the dimensionless gauge of how close the
 layer is to separation: low :math:`H` (~1.4) is healthy turbulent flow,
 high :math:`H` (~3–4) is on the edge of separating.
 
+.. plot::
+   :alt: Schematic velocity profile inside a boundary layer with delta-star and theta shaded.
+   :caption: Schematic velocity profile :math:`u(n)/U_e` through a boundary
+       layer. The **displacement thickness** :math:`\delta^*` (shaded) is the
+       wall-normal distance by which the outer streamline is pushed outward
+       compared to inviscid flow; the **momentum thickness** :math:`\theta`
+       (hatched) is the corresponding loss of momentum flux. Their ratio is
+       the shape factor :math:`H`.
+
+   import numpy as np
+   import matplotlib.pyplot as plt
+
+   # A 1/7-power-law turbulent profile, just for illustration.
+   n_over_delta = np.linspace(0, 1.4, 200)
+   u = np.where(n_over_delta <= 1.0, n_over_delta ** (1 / 7.0), 1.0)
+
+   fig, ax = plt.subplots(figsize=(5.4, 3.6))
+   # delta* shaded between u and 1 (the "missing" mass flux).
+   ax.fill_betweenx(n_over_delta, u, 1.0, color="C0", alpha=0.30,
+                    label=r"$\delta^*$ (mass defect)")
+   # theta hatched as u(1-u).
+   ax.fill_betweenx(n_over_delta, 0, u * (1 - u), color="none",
+                    edgecolor="C3", hatch="////",
+                    label=r"$\theta$ (momentum defect)")
+   ax.plot(u, n_over_delta, "k", lw=1.6, label=r"$u(n) / U_e$")
+   ax.axhline(1.0, ls="--", color="0.5", lw=0.7)
+   ax.text(0.04, 1.04, r"$n \approx \delta$  (BL edge)", color="0.4")
+
+   ax.set_xlim(0, 1.05)
+   ax.set_ylim(0, 1.4)
+   ax.set_xlabel(r"$u / U_e$")
+   ax.set_ylabel(r"$n / \delta$  (wall-normal distance)")
+   ax.set_title("Boundary-layer profile and integral thicknesses")
+   ax.legend(loc="lower right", fontsize=8, frameon=False)
+   plt.tight_layout()
+
 Non-dimensionalisation
 ~~~~~~~~~~~~~~~~~~~~~~
 
@@ -226,6 +262,50 @@ For each surface the solver returns
 * a **separation flag** plus the separation arc-length if separated forward of
   the TE cusp;
 * the **profile-drag contribution** from Squire–Young.
+
+A representative output from the BL march on the upper surface of a
+NACA 2412 at :math:`\alpha = 5°,\,\mathrm{Re} = 10^6` is shown below.
+:math:`\theta` and :math:`\delta^*` grow smoothly from the stagnation
+point, the shape factor :math:`H` drops sharply when transition fires
+(turbulent profiles are fuller, so :math:`H` is smaller), then climbs
+again under the adverse pressure gradient toward the trailing edge.
+
+.. plot::
+   :alt: Momentum thickness, displacement thickness, and shape factor along the upper surface.
+   :caption: Upper-surface boundary layer for a NACA 2412 at α = 5°,
+       Re = 10\ :sup:`6`. Left: integral thicknesses
+       :math:`\theta` and :math:`\delta^*` along the chord. Right: shape
+       factor :math:`H`; the sudden drop marks Michel transition.
+
+   import numpy as np
+   import matplotlib.pyplot as plt
+
+   from aerosim import naca4, Geometry, solve
+
+   sol = solve(Geometry(*naca4("2412")), alpha_deg=5.0, re=1e6)
+   up = sol.bl.upper
+
+   fig, (a1, a2) = plt.subplots(1, 2, figsize=(8.4, 3.2), sharex=True)
+
+   a1.plot(up.x, up.theta, label=r"$\theta / c$", lw=1.5)
+   a1.plot(up.x, up.delta_star, label=r"$\delta^{*} / c$", lw=1.5)
+   if np.isfinite(up.x_transition):
+       a1.axvline(up.x_transition, ls="--", color="0.5", lw=0.8)
+       a1.text(up.x_transition + 0.01, a1.get_ylim()[1] * 0.6,
+               "transition", color="0.4", fontsize=8)
+   a1.set_xlabel("x / c"); a1.set_ylabel("thickness / c")
+   a1.set_title("Integral thicknesses (upper surface)")
+   a1.legend(frameon=False, fontsize=9)
+
+   a2.plot(up.x, up.H, color="C3", lw=1.5)
+   if np.isfinite(up.x_transition):
+       a2.axvline(up.x_transition, ls="--", color="0.5", lw=0.8)
+   a2.axhline(2.6, color="0.7", ls=":", lw=0.7)
+   a2.text(0.5, 2.65, "H ~ 2.6  (separation)", color="0.45", fontsize=8)
+   a2.set_xlabel("x / c"); a2.set_ylabel("H")
+   a2.set_title("Shape factor")
+
+   plt.tight_layout()
 
 The validation suite asserts several non-tight but physically essential
 trends — these are not coincidences but consequences of the equations

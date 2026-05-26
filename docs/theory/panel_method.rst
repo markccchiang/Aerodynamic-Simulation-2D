@@ -55,6 +55,61 @@ and the panel-aligned tangent and inward-of-page normal are
    convention is what makes "first and last panels" in the Kutta
    condition correspond to the two trailing-edge panels.
 
+.. plot::
+   :alt: NACA 0012 discretized into flat panels with cosine spacing.
+   :caption: Cosine-spaced panel discretization of a NACA 0012 (40 panels
+       drawn for clarity; the default solve uses ~160). One panel near the
+       leading edge is highlighted with its control point (●), tangent
+       :math:`\hat{\mathbf{t}}` (blue), and outward normal
+       :math:`\hat{\mathbf{n}}` (red). Note how nodes cluster at both the
+       leading and trailing edges, where the pressure gradient is largest.
+
+   import numpy as np
+   import matplotlib.pyplot as plt
+
+   from aerosim import naca4, Geometry
+
+   x, y = naca4("0012", n_panels=40)
+   geom = Geometry(x, y)
+
+   fig, ax = plt.subplots(figsize=(7.5, 2.6))
+   ax.plot(geom.x, geom.y, "o-", color="0.3", lw=0.7, ms=2.6)
+
+   j = 7  # a panel a bit aft of the LE on the upper surface
+   ax.plot([geom.xa[j], geom.xb[j]], [geom.ya[j], geom.yb[j]],
+           color="C2", lw=2.4, zorder=4)
+   ax.plot(geom.xc[j], geom.yc[j], "o", color="C2", ms=6, zorder=5)
+   scale = 0.07
+   ax.annotate("", xy=(geom.xc[j] + scale * geom.tx[j],
+                       geom.yc[j] + scale * geom.ty[j]),
+               xytext=(geom.xc[j], geom.yc[j]),
+               arrowprops=dict(arrowstyle="->", color="C0", lw=1.6))
+   ax.annotate("", xy=(geom.xc[j] + scale * geom.noutx[j],
+                       geom.yc[j] + scale * geom.nouty[j]),
+               xytext=(geom.xc[j], geom.yc[j]),
+               arrowprops=dict(arrowstyle="->", color="C3", lw=1.6))
+   ax.annotate(r"$\hat{\mathbf{t}}$",
+               (geom.xc[j] + 1.1 * scale * geom.tx[j],
+                geom.yc[j] + 1.1 * scale * geom.ty[j]),
+               color="C0", fontsize=11)
+   ax.annotate(r"$\hat{\mathbf{n}}$",
+               (geom.xc[j] + 1.1 * scale * geom.noutx[j],
+                geom.yc[j] + 1.1 * scale * geom.nouty[j]),
+               color="C3", fontsize=11)
+   ax.annotate("control point",
+               (geom.xc[j], geom.yc[j]),
+               xytext=(geom.xc[j] - 0.10, geom.yc[j] + 0.10),
+               fontsize=8, color="C2",
+               arrowprops=dict(arrowstyle="-", color="C2", lw=0.6))
+
+   ax.set_aspect("equal")
+   ax.set_xlim(-0.05, 1.05)
+   ax.set_ylim(-0.18, 0.22)
+   ax.set_xlabel("x / c")
+   ax.set_ylabel("y / c")
+   ax.set_title("Panel discretization")
+   plt.tight_layout()
+
 
 Elementary singularities
 ------------------------
@@ -109,6 +164,52 @@ Returning to the global frame is a rotation by :math:`\theta_j`:
    = \begin{pmatrix}\cos\theta_j & -\sin\theta_j \\
                     \sin\theta_j & \phantom{-}\cos\theta_j\end{pmatrix}
      \begin{pmatrix} u_p \\ w_p \end{pmatrix}.
+
+The two elementary fields look as follows. A **source panel** (left) blows
+flow outward symmetrically; a **vortex panel** (right) drives a circulation
+around it. The vortex's pattern is the source's pattern rotated by 90°,
+which is why one influence routine returns both at once.
+
+.. plot::
+   :alt: Velocity fields induced by a unit-strength source panel and vortex panel.
+   :caption: Velocity field around a single unit-strength source panel (left)
+       and a single unit-strength vortex panel (right). The panel itself runs
+       from :math:`(0,0)` to :math:`(1,0)`. Streamlines are coloured by
+       speed; the panel is drawn as a thick black bar.
+
+   import numpy as np
+   import matplotlib.pyplot as plt
+
+   from aerosim import Geometry
+   from aerosim.panel import induced
+
+   # A degenerate one-panel "geometry" just to exercise induced().
+   geom = Geometry(np.array([0.0, 1.0]), np.array([0.0, 0.0]))
+
+   xs = np.linspace(-0.6, 1.6, 60)
+   ys = np.linspace(-0.8, 0.8, 50)
+   X, Y = np.meshgrid(xs, ys)
+   us_x, us_y, uv_x, uv_y = induced(X.ravel(), Y.ravel(), geom)
+
+   Us = us_x[:, 0].reshape(X.shape)
+   Vs = us_y[:, 0].reshape(X.shape)
+   Uv = uv_x[:, 0].reshape(X.shape)
+   Vv = uv_y[:, 0].reshape(X.shape)
+
+   fig, (axs, axv) = plt.subplots(1, 2, figsize=(8.4, 3.3))
+   axs.streamplot(X, Y, Us, Vs, density=1.2, color=np.hypot(Us, Vs),
+                  cmap="magma", linewidth=0.7, arrowsize=0.7)
+   axs.plot([0, 1], [0, 0], "-", color="k", lw=3)
+   axs.set_aspect("equal"); axs.set_xlabel("x"); axs.set_ylabel("y")
+   axs.set_title("Source panel (σ = 1)")
+
+   axv.streamplot(X, Y, Uv, Vv, density=1.2, color=np.hypot(Uv, Vv),
+                  cmap="magma", linewidth=0.7, arrowsize=0.7)
+   axv.plot([0, 1], [0, 0], "-", color="k", lw=3)
+   axv.set_aspect("equal"); axv.set_xlabel("x"); axv.set_ylabel("y")
+   axv.set_title("Vortex panel (γ = 1)")
+
+   plt.tight_layout()
 
 
 Influence coefficients

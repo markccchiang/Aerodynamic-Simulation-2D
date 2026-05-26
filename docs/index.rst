@@ -36,8 +36,8 @@ Building these docs
 
 .. code-block:: bash
 
-   uv add --dev sphinx              # one-time
-   cd docs && uv run make html      # output in docs/_build/html/index.html
+   uv add --dev sphinx sphinx_rtd_theme    # one-time
+   cd docs && uv run make html             # output in docs/_build/html/index.html
 
 
 Indices

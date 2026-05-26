@@ -40,6 +40,36 @@ boundary condition and the loop is iterated to convergence, so that
 :math:`C_\ell` and :math:`C_p` themselves react to viscosity (the
 **viscous decambering** effect).
 
+In picture form:
+
+.. code-block:: text
+
+       ┌──────────────────┐
+       │     Geometry     │   nodes, panels, cosine spacing
+       └────────┬─────────┘
+                │
+                ▼
+       ┌──────────────────┐
+       │   Hess–Smith     │   (N+1) linear system
+       │  panel solver    │   sources σⱼ  +  shared vortex γ
+       └────────┬─────────┘
+                │   Cp, Vt, Cl, Cm
+                ▼
+       ┌──────────────────┐                      ┌───────────────────────┐
+       │  Boundary layer  │  edge velocity Ue    │   Wall-transpiration  │
+       │  Thwaites→Michel │────────────────────▶ │   v_n = d(Ue·δ*)/ds   │
+       │  →Head + LT      │                      └───────────┬───────────┘
+       └────────┬─────────┘                                  │
+                │   θ, δ*, H, x_tr, Cd_visc                  │  (couple=True only:
+                │                                            │   feed back into the
+                ▼                                            │   flow-tangency RHS
+       ┌──────────────────┐                                  │   and re-solve)
+       │     Solution     │ ◀────────────────────────────────┘
+       └──────────────────┘
+
+The dashed feedback path is what ``couple=True`` switches on; without
+it, the boundary-layer block is a pure one-way post-process.
+
 
 Why two solvers?
 ----------------

@@ -151,6 +151,74 @@ Switching from ``solve(geom, alpha, re=Re)`` to
   body. The total profile drag is still
   ``Solution.cd_visc`` from Squire–Young.
 
+The two effects are visible directly on the surface pressure plot:
+
+.. plot::
+   :alt: Inviscid vs viscously-coupled Cp on a NACA 2412.
+   :caption: Surface :math:`C_p` for a NACA 2412 at α = 5°,
+       Re = 10\ :sup:`6`. The coupled curve has a softer suction peak
+       and a slightly higher pressure on the upper surface aft of mid-chord
+       — the viscous decambering effect.
+
+   import matplotlib.pyplot as plt
+
+   from aerosim import naca4, Geometry, solve
+
+   geom = Geometry(*naca4("2412"))
+   inv = solve(geom, alpha_deg=5.0, re=1e6)
+   vis = solve(geom, alpha_deg=5.0, re=1e6, couple=True)
+
+   fig, ax = plt.subplots(figsize=(6.4, 3.6))
+   ax.plot(inv.geom.xc, inv.cp, lw=1.2, label=f"inviscid  ($C_\\ell$ = {inv.cl:.3f})")
+   ax.plot(vis.geom.xc, vis.cp, lw=1.2, ls="--",
+           label=f"coupled ($C_\\ell$ = {vis.cl:.3f}, n_iter = {vis.n_iter})")
+   ax.axhline(0, color="0.5", lw=0.6)
+   ax.invert_yaxis()
+   ax.set_xlabel("x / c"); ax.set_ylabel(r"$C_p$")
+   ax.set_title("NACA 2412 surface pressure: inviscid vs coupled")
+   ax.legend(frameon=False, fontsize=9)
+   plt.tight_layout()
+
+A look inside the iteration of equation :eq:`fixed_point` shows what
+"converges in 10–40 iterations" actually means: the lift coefficient
+drops in the first couple of steps, then the under-relaxation walks it
+into the converged value.
+
+.. plot::
+   :alt: Lift-coefficient convergence history of the coupling iteration.
+   :caption: Convergence of the under-relaxed direct iteration. The
+       inviscid lift on iteration 0 falls quickly as the boundary-layer
+       displacement feeds back, then settles to within
+       :math:`2\times 10^{-5}` per step (the convergence tolerance).
+
+   import numpy as np
+   import matplotlib.pyplot as plt
+
+   from aerosim import naca4, Geometry
+   from aerosim.panel import _solve_panels, _COUPLE_RELAX
+   from aerosim.boundary_layer import boundary_layer, transpiration_velocity
+
+   geom = Geometry(*naca4("2412"))
+   alpha, re, vinf = 5.0, 1e6, 1.0
+   relax = _COUPLE_RELAX
+
+   sol = _solve_panels(geom, alpha, vinf, vn=None)
+   vn = np.zeros(geom.n)
+   cls = [sol.cl]
+   for _ in range(30):
+       bl = boundary_layer(sol, re)
+       vn = (1 - relax) * vn + relax * transpiration_velocity(sol, bl)
+       sol = _solve_panels(geom, alpha, vinf, vn=vn)
+       cls.append(sol.cl)
+
+   fig, ax = plt.subplots(figsize=(5.6, 3.2))
+   ax.plot(range(len(cls)), cls, "o-", ms=4, lw=1.2)
+   ax.axhline(cls[-1], color="0.6", ls="--", lw=0.7)
+   ax.set_xlabel("iteration k")
+   ax.set_ylabel(r"$C_\ell^{(k)}$")
+   ax.set_title("Under-relaxed direct coupling (ω = 0.25)")
+   plt.tight_layout()
+
 The lift loss grows as :math:`\mathrm{Re}` falls (thicker boundary
 layer), and at :math:`\alpha = 0` on a symmetric airfoil it stays at
 exactly zero — the coupling does not break the up/down symmetry that
