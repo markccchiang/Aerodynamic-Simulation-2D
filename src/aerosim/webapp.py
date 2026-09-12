@@ -19,10 +19,10 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .airfoil import naca4
 from .airfoil_io import list_samples, load_sample_text, parse_dat, repanel
@@ -30,6 +30,15 @@ from .flowfield import streamlines_from_grid, velocity_field
 from .panel import Geometry, solve
 
 STATIC_DIR = Path(__file__).parent / "static"
+
+# Request bounds, shared by the GET query params and the POST request models so
+# every endpoint rejects the same things. Out-of-range input is a 422 from the
+# validation layer rather than a 500 from deep inside the solver; ``panels`` is
+# capped because the panel matrix is (N+1)^2 and the server would otherwise
+# happily try to allocate gigabytes for it.
+ALPHA_MIN, ALPHA_MAX = -30.0, 30.0
+RE_LOG_MIN, RE_LOG_MAX = 4.0, 9.0
+PANELS_MIN, PANELS_MAX = 40, 400
 
 # Flow-field window and resolution for the streamline/Cp background grid.
 XLIM = (-0.6, 1.6)
@@ -69,7 +78,10 @@ def _pack(geom: Geometry, name: str, alpha: float, re: float,
         [None if not np.isfinite(v) else round(float(v), 3) for v in row]
         for row in cp_field
     ]
-    half = geom.n // 2
+    # Split the surface runs at the actual leading-edge control point. The LE
+    # is only at the mid index for a symmetric section; elsewhere it sits 1-2
+    # panels off, which mis-assigns Cp points right at the suction peak.
+    half = int(np.argmin(geom.xc)) + 1
 
     def opt(x):  # finite float or None (transition may be absent)
         return None if not np.isfinite(x) else round(float(x), 3)
@@ -162,9 +174,9 @@ class CustomRequest(BaseModel):
     dat: str | None = None
     sample: str | None = None
     name: str | None = None
-    alpha: float = 5.0
-    re_log: float = 6.0
-    panels: int = 160
+    alpha: float = Field(5.0, ge=ALPHA_MIN, le=ALPHA_MAX)
+    re_log: float = Field(6.0, ge=RE_LOG_MIN, le=RE_LOG_MAX)
+    panels: int = Field(160, ge=PANELS_MIN, le=PANELS_MAX)
     couple: bool = False
 
 
@@ -174,12 +186,12 @@ class PolarRequest(BaseModel):
     dat: str | None = None
     sample: str | None = None
     name: str | None = None
-    re_log: float = 6.0
-    panels: int = 160
+    re_log: float = Field(6.0, ge=RE_LOG_MIN, le=RE_LOG_MAX)
+    panels: int = Field(160, ge=PANELS_MIN, le=PANELS_MAX)
     couple: bool = False
-    amin: float = -6.0
-    amax: float = 14.0
-    astep: float = 1.0
+    amin: float = Field(-6.0, ge=ALPHA_MIN, le=ALPHA_MAX)
+    amax: float = Field(14.0, ge=ALPHA_MIN, le=ALPHA_MAX)
+    astep: float = Field(1.0, ge=0.25, le=10.0)
 
 
 def create_app() -> FastAPI:
@@ -187,12 +199,12 @@ def create_app() -> FastAPI:
 
     @app.get("/api/solve")
     def api_solve(
-        m: int = 2,
-        p: int = 4,
-        t: int = 12,
-        alpha: float = 5.0,
-        re_log: float = 6.0,
-        panels: int = 160,
+        m: int = Query(2, ge=0, le=9),
+        p: int = Query(4, ge=0, le=9),
+        t: int = Query(12, ge=1, le=40),
+        alpha: float = Query(5.0, ge=ALPHA_MIN, le=ALPHA_MAX),
+        re_log: float = Query(6.0, ge=RE_LOG_MIN, le=RE_LOG_MAX),
+        panels: int = Query(160, ge=PANELS_MIN, le=PANELS_MAX),
         couple: bool = False,
     ):
         """Solve a NACA 4-digit airfoil (from the sliders)."""
@@ -227,15 +239,15 @@ def create_app() -> FastAPI:
 
     @app.get("/api/polar")
     def api_polar(
-        m: int = 2,
-        p: int = 4,
-        t: int = 12,
-        re_log: float = 6.0,
-        panels: int = 160,
+        m: int = Query(2, ge=0, le=9),
+        p: int = Query(4, ge=0, le=9),
+        t: int = Query(12, ge=1, le=40),
+        re_log: float = Query(6.0, ge=RE_LOG_MIN, le=RE_LOG_MAX),
+        panels: int = Query(160, ge=PANELS_MIN, le=PANELS_MAX),
         couple: bool = False,
-        amin: float = -6.0,
-        amax: float = 14.0,
-        astep: float = 1.0,
+        amin: float = Query(-6.0, ge=ALPHA_MIN, le=ALPHA_MAX),
+        amax: float = Query(14.0, ge=ALPHA_MIN, le=ALPHA_MAX),
+        astep: float = Query(1.0, ge=0.25, le=10.0),
     ):
         """Lift curve / drag polar for a NACA 4-digit airfoil (alpha sweep)."""
         code, _p = _naca_code(m, p, t)

@@ -129,9 +129,16 @@ function drawPolar() {
         marker: { color: '#ffd166', size: 11, line: { color: '#11141f', width: 1.5 } } });
     const base = (x, y, name, color) => ({ type: 'scatter', mode: 'lines+markers', x, y,
         name, line: { color, width: 2 }, marker: { size: 4 } });
+    // Direct coupling does not converge through heavy separation, so ring those
+    // points instead of drawing them as settled answers.
+    const bad = two ? d.alpha.map((_, i) => i).filter(i => d.coupled.converged[i] === false) : [];
+    const flag = (x, y) => ({ type: 'scatter', mode: 'markers', name: 'not converged', x, y,
+        marker: { color: 'rgba(0,0,0,0)', size: 10, line: { color: '#ffd166', width: 2 } },
+        hovertemplate: 'not converged<extra></extra>' });
 
     const lc = [base(d.alpha, d.uncoupled.cl, two ? 'inviscid' : 'C_l', '#4a9eff')];
     if (two) lc.push(base(d.alpha, d.coupled.cl, 'coupled', '#ff6b5e'));
+    if (bad.length) lc.push(flag(bad.map(i => d.alpha[i]), bad.map(i => d.coupled.cl[i])));
     if (op) lc.push(now(op.alpha, op.coeffs.cl));
     const lcLayout = polarBaseLayout('Lift curve');
     lcLayout.xaxis = { title: 'α (°)', ...AX };
@@ -141,6 +148,7 @@ function drawPolar() {
 
     const dp = [base(d.uncoupled.cd, d.uncoupled.cl, two ? 'inviscid' : 'polar', '#4a9eff')];
     if (two) dp.push(base(d.coupled.cd, d.coupled.cl, 'coupled', '#ff6b5e'));
+    if (bad.length) dp.push(flag(bad.map(i => d.coupled.cd[i]), bad.map(i => d.coupled.cl[i])));
     if (op) dp.push(now(op.coeffs.cd_visc, op.coeffs.cl));
     const dpLayout = polarBaseLayout('Drag polar');
     dpLayout.xaxis = { title: 'C<sub>d</sub> (profile)', gridcolor: '#283047', zeroline: false, rangemode: 'tozero' };
@@ -186,8 +194,10 @@ async function computePolar() {
         polarData = await res.json();
         polarSig = polarSignature();
         const re = polarData.re.toExponential(1).replace('e+', 'e');
+        const nbad = (polarData.coupled?.converged || []).filter(c => c === false).length;
         note.textContent = `${polarData.alpha.length} points · Re = ${re}` +
-            (polarData.coupled ? ' · inviscid vs coupled' : '');
+            (polarData.coupled ? ' · inviscid vs coupled' : '') +
+            (nbad ? ` · ⚠ ${nbad} coupled point(s) did not converge` : '');
         setPolarOpen(true);
     } catch (e) {
         note.textContent = '⚠ ' + e.message;
