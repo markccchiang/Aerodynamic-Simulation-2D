@@ -1,6 +1,7 @@
 # aerosim
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12+-3776AB.svg?logo=python&logoColor=white)](https://www.python.org/downloads/)
 
 An interactive **2D airfoil aerodynamics simulator** built from scratch in Python.
 It solves the incompressible potential-flow field around an airfoil with a
