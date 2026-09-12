@@ -10,8 +10,8 @@ import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
 
 project = "aerosim"
-author = "aerosim contributors"
-copyright = "%Y, aerosim contributors"
+author = "Cheng-Chin Chiang"
+copyright = "%Y, Cheng-Chin Chiang"
 
 extensions = [
     "sphinx.ext.mathjax",
