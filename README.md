@@ -1,5 +1,7 @@
 # aerosim
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 An interactive **2D airfoil aerodynamics simulator** built from scratch in Python.
 It solves the incompressible potential-flow field around an airfoil with a
 **Hess–Smith panel method** and lets you explore lift, pressure, and streamlines
