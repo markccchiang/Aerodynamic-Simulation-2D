@@ -292,7 +292,13 @@ a dense :math:`(N+1)\times(N+1)` linear system
    \begin{pmatrix} \sigma_1 \\ \vdots \\ \sigma_N \\ \gamma \end{pmatrix}
    \;=\; \mathbf{b},
 
-solved once with a direct factorisation (`numpy.linalg.solve`).
+solved with a direct LU factorisation (:func:`scipy.linalg.lu_factor`).
+Note that :math:`\mathbf{A}` depends only on the panel *geometry* — the angle
+of attack and any wall transpiration enter through :math:`\mathbf{b}` alone —
+so the factorisation is computed once per :class:`~aerosim.panel.Geometry` and
+cached. Every further solve on the same airfoil (an angle-of-attack sweep, or
+an iteration of the viscous coupling) costs only a triangular back-substitution
+via :func:`scipy.linalg.lu_solve`.
 
 
 Post-processing

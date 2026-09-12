@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 from matplotlib.path import Path
+from scipy.linalg import lu_factor, lu_solve
 
 if TYPE_CHECKING:
     from .boundary_layer import BoundaryLayer
@@ -54,6 +55,9 @@ class Geometry:
         # Unit outward normal (points into the flow).
         self.noutx = self._exterior_side * self.nx
         self.nouty = self._exterior_side * self.ny
+        # Lazily built by ``_panel_system``; like every other quantity above it
+        # assumes the nodes do not change after construction.
+        self._system: "_PanelSystem | None" = None
 
     def _detect_exterior_side(self) -> int:
         """Return +1 if the local +y normal points into the flow, else -1.
@@ -139,20 +143,36 @@ _COUPLE_RELAX = 0.25   # under-relaxation on the transpiration field
 _COUPLE_TOL = 2e-5     # convergence on the change in cl between iterations
 
 
-def _solve_panels(
-    geom: Geometry, alpha_deg: float, vinf: float, vn: np.ndarray | None = None
-) -> Solution:
-    """Assemble and solve the panel system once.
+@dataclass
+class _PanelSystem:
+    """The geometry-only half of the panel solve, built once per geometry.
 
-    ``vn`` is an optional wall-transpiration velocity (length ``N``, outward
-    positive, ``Vinf`` units) added to the flow-tangency condition for viscous
-    coupling; ``None`` is the pure inviscid no-penetration condition. The
-    returned :class:`Solution` carries only the inviscid fields — no ``bl``.
+    The influence matrix ``A`` is a function of the panel geometry alone — the
+    angle of attack and any wall transpiration enter through the right-hand side
+    — so it is assembled and factorized once and reused for every solve on the
+    same :class:`Geometry`. That is what makes alpha sweeps and the coupling
+    iteration cheap: each extra solve is a triangular back-substitution instead
+    of a fresh O(N^3) factorization.
+
+    ``us_x``/``us_y`` are the diagonal-corrected source influence matrices, kept
+    for reconstructing the surface velocity; the vortex contribution only ever
+    appears summed over panels, so just the row sums are kept. **Treat all of
+    them as read-only** — they are shared by every solve on this geometry.
     """
-    a = np.radians(alpha_deg)
-    uinf, winf = vinf * np.cos(a), vinf * np.sin(a)
-    n = geom.n
 
+    lu: tuple            # (lu, piv) from scipy.linalg.lu_factor
+    us_x: np.ndarray     # (N, N) source -> x velocity at control points
+    us_y: np.ndarray     # (N, N) source -> y velocity
+    uvx_sum: np.ndarray  # (N,)  unit vortex (all panels) -> x velocity
+    uvy_sum: np.ndarray  # (N,)  unit vortex (all panels) -> y velocity
+
+
+def _panel_system(geom: Geometry) -> _PanelSystem:
+    """Return (building and caching on first use) the factorized panel system."""
+    if geom._system is not None:
+        return geom._system
+
+    n = geom.n
     us_x, us_y, uv_x, uv_y = induced(geom.xc, geom.yc, geom)
 
     # Self-influence: the limit approaching each control point from the flow
@@ -168,16 +188,10 @@ def _solve_panels(
     tx, ty = geom.tx, geom.ty
 
     A = np.zeros((n + 1, n + 1))
-    b = np.zeros(n + 1)
 
-    # Flow tangency at every control point. Inviscid: no penetration (RHS 0).
-    # Coupled: the wall emits the transpiration velocity ``vn`` outward, which
-    # in the local +y normal frame is ``exterior_side * vn``.
+    # Flow tangency at every control point.
     A[:n, :n] = us_x * nx[:, None] + us_y * ny[:, None]
     A[:n, n] = (uv_x * nx[:, None] + uv_y * ny[:, None]).sum(axis=1)
-    b[:n] = -(uinf * nx + winf * ny)
-    if vn is not None:
-        b[:n] += s * vn
 
     # Kutta condition: equal-and-opposite tangential velocity on the two
     # trailing-edge panels (the first and last in the node ordering).
@@ -188,16 +202,65 @@ def _solve_panels(
     A[n, n] = (uv_x[i0] * tx[i0] + uv_y[i0] * ty[i0]).sum() + (
         uv_x[i1] * tx[i1] + uv_y[i1] * ty[i1]
     ).sum()
+
+    lu = lu_factor(A)
+    # lu_factor only warns on a singular matrix and would hand back NaNs later;
+    # fail loudly instead, as np.linalg.solve did.
+    if not np.all(np.diagonal(lu[0])):
+        raise np.linalg.LinAlgError(
+            "singular panel matrix — check for zero-length or duplicated panels"
+        )
+
+    geom._system = _PanelSystem(
+        lu=lu, us_x=us_x, us_y=us_y,
+        uvx_sum=uv_x.sum(axis=1), uvy_sum=uv_y.sum(axis=1),
+    )
+    return geom._system
+
+
+def _solve_panels(
+    geom: Geometry, alpha_deg: float, vinf: float, vn: np.ndarray | None = None
+) -> Solution:
+    """Solve the panel system once at this angle of attack.
+
+    The influence matrix is geometry-only and comes factorized from
+    :func:`_panel_system`; only the right-hand side is built here.
+
+    ``vn`` is an optional wall-transpiration velocity (length ``N``, outward
+    positive, ``Vinf`` units) added to the flow-tangency condition for viscous
+    coupling; ``None`` is the pure inviscid no-penetration condition. The
+    returned :class:`Solution` carries only the inviscid fields — no ``bl``.
+    """
+    a = np.radians(alpha_deg)
+    uinf, winf = vinf * np.cos(a), vinf * np.sin(a)
+    n = geom.n
+    s = geom._exterior_side
+    sys = _panel_system(geom)
+
+    nx, ny = geom.nx, geom.ny
+    tx, ty = geom.tx, geom.ty
+
+    b = np.zeros(n + 1)
+
+    # Flow tangency at every control point. Inviscid: no penetration (RHS 0).
+    # Coupled: the wall emits the transpiration velocity ``vn`` outward, which
+    # in the local +y normal frame is ``exterior_side * vn``.
+    b[:n] = -(uinf * nx + winf * ny)
+    if vn is not None:
+        b[:n] += s * vn
+
+    # Kutta condition on the two trailing-edge panels.
+    i0, i1 = 0, n - 1
     b[n] = -(
         (uinf * tx[i0] + winf * ty[i0]) + (uinf * tx[i1] + winf * ty[i1])
     )
 
-    raw = np.linalg.solve(A, b)
+    raw = lu_solve(sys.lu, b)
     sigma, gamma = raw[:n], float(raw[n])
 
     # Surface velocity and pressure at the control points.
-    vx = us_x @ sigma + gamma * uv_x.sum(axis=1) + uinf
-    vy = us_y @ sigma + gamma * uv_y.sum(axis=1) + winf
+    vx = sys.us_x @ sigma + gamma * sys.uvx_sum + uinf
+    vy = sys.us_y @ sigma + gamma * sys.uvy_sum + winf
     vt = vx * tx + vy * ty
     cp = 1.0 - (vt / vinf) ** 2
 
