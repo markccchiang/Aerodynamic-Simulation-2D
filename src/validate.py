@@ -184,6 +184,70 @@ def main():
         all_ok &= bool(np.isfinite(s.cl) and s.bl.cd > 0)
     passed &= check_true("All bundled samples solve (finite Cl, Cd>0)", all_ok)
 
+    # ---- The layers above the physics: payload shape, request validation ----
+    print("\n-- web payload & solver plumbing --")
+    from pydantic import ValidationError
+
+    from aerosim.flowfield import velocity_field
+    from aerosim.webapp import CustomRequest, _naca_code, _pack
+
+    # 19. The Cp payload must split the surface at the true leading edge. The LE
+    #     only lands on the mid index for a symmetric section, so splitting at
+    #     n//2 puts lower-surface points on the upper curve at the suction peak.
+    split_ok = True
+    for key, _name in samples:
+        g = Geometry(*repanel(*parse_dat(load_sample_text(key))[:2], 160))
+        surf = _pack(g, key, 5.0, 1e6)["surface"]
+        le = int(np.argmin(g.xc))
+        split_ok &= (
+            len(surf["x_upper"]) == le + 1
+            and len(surf["x_lower"]) == g.n - le - 1
+            and np.allclose(surf["x_upper"], np.round(g.xc[: le + 1], 4))
+            and np.allclose(surf["x_lower"], np.round(g.xc[le + 1 :], 4))
+        )
+    passed &= check_true("Cp payload splits at the leading edge", split_ok)
+
+    # 20. Out-of-range requests are rejected by the validation layer instead of
+    #     reaching the solver and surfacing as a 500.
+    bad = (dict(alpha=999.0), dict(re_log=400.0), dict(re_log=-400.0),
+           dict(panels=0), dict(panels=20000))
+    rejected = 0
+    for kw in bad:
+        try:
+            CustomRequest(sample="naca0012", **kw)
+        except ValidationError:
+            rejected += 1
+    passed &= check_true("Out-of-range requests rejected", rejected == len(bad),
+                         f"{rejected}/{len(bad)}")
+
+    # 21. Camber needs a non-zero position, so the API snaps P 0 -> 1; without it
+    #     M>0 with P=0 silently returns a symmetric section.
+    code_snapped, p_snapped = _naca_code(2, 0, 12)
+    passed &= check_true("Cambered NACA code snaps P 0 -> 1",
+                         code_snapped == "2112" and p_snapped == 1, code_snapped)
+
+    # 22. The panel factorization is cached on the Geometry, so a reused geometry
+    #     must give bit-identical results to a freshly built one at every alpha.
+    gx, gy = naca4("2412", n_panels=160)
+    shared = Geometry(gx, gy)
+    passed &= check_true(
+        "Cached geometry matches a fresh solve",
+        all(solve(shared, a).cl == solve(Geometry(gx, gy), a).cl
+            for a in (-4.0, 0.0, 6.0, 11.0)),
+    )
+
+    # 23. The reconstructed flow field relaxes to the free stream far upstream
+    #     and masks points inside the body (the web UI relies on both).
+    ff = solve(Geometry(gx, gy), 6.0)
+    _, _, U, V = velocity_field(ff, np.array([-30.0, 0.5]), np.array([0.0]))
+    a_ff = np.radians(6.0)
+    passed &= check_true(
+        "Far field -> free stream, body masked",
+        abs(U[0, 0] - np.cos(a_ff)) < 5e-3 and abs(V[0, 0] - np.sin(a_ff)) < 5e-3
+        and bool(np.isnan(U[0, 1])) and bool(np.isnan(V[0, 1])),
+        f"far (u,v)=({U[0, 0]:.4f}, {V[0, 0]:.4f}), in-body NaN={np.isnan(U[0, 1])}",
+    )
+
     print("\n" + ("All checks passed." if passed else "Some checks FAILED."))
     return 0 if passed else 1
 
