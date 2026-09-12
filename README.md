@@ -8,7 +8,7 @@ It solves the incompressible potential-flow field around an airfoil with a
 **Hess–Smith panel method** and lets you explore lift, pressure, and streamlines
 in real time in your browser.
 
-![preview](web-preview.png)
+![preview](gallery/web-preview.png)
 
 ## Quick start
 
@@ -75,7 +75,7 @@ dimples at real proportions — 0.6 % of the diameter deep, the equivalent of a
 0.010 in dimple on a 1.68 in ball. They are a controlled pair, identical apart
 from the dimples, and they are here to show where the model ends.
 
-![golf ball](golfball-preview.png)
+![golf ball](gallery/golfball-preview.png)
 
 At α = 0 the field is perfectly fore-and-aft symmetric — stagnation points front
 **and** back, no wake. That is d'Alembert's paradox made visible: the pressure
