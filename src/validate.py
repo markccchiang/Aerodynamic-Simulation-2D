@@ -62,45 +62,64 @@ def main():
     cl_kj = -2.0 * s5.gamma * geom.perimeter / s5.vinf
     passed &= check("NACA0012 a=5 Cl (KJ vs pressure)", cl_kj, s5.cl, 0.02)
 
+    # 7. Exact reference case. Potential flow past a circle has the closed-form
+    #    solution Cp = 1 - 4 sin^2(theta). Unlike every other check in this file
+    #    that is analysis rather than a trend or a published number, so it pins
+    #    induced() and the panel assembly directly. Built in code at full
+    #    precision: the bundled circle.dat stores 6 decimals, which limits the
+    #    same comparison to ~4e-4 (see check 19).
+    nc = 480
+    tc = np.linspace(0.0, 2.0 * np.pi, nc + 1)
+    cx, cy = 0.5 + 0.5 * np.cos(tc), 0.5 * np.sin(tc)
+    cx[0] = cx[-1] = 1.0
+    cy[0] = cy[-1] = 0.0
+    cy[nc // 2] = 0.0
+    cyl = Geometry(cx, cy)
+    cyl_cp = solve(cyl, 0.0).cp
+    cyl_th = np.mod(np.arctan2(cyl.yc, cyl.xc - 0.5), 2.0 * np.pi)
+    cyl_err = float(np.max(np.abs(cyl_cp - (1.0 - 4.0 * np.sin(cyl_th) ** 2))))
+    passed &= check_true("Circle Cp == 1 - 4 sin^2(theta) (exact)", cyl_err < 1e-10,
+                         f"max |dCp| = {cyl_err:.2e}")
+
     # ---- Viscous boundary-layer correction (uncoupled profile drag) ----
     print("\n-- viscous boundary-layer correction --")
 
-    # 7. Profile drag of NACA0012 at a=0. Published Cd0 (free transition) is
+    # 8. Profile drag of NACA0012 at a=0. Published Cd0 (free transition) is
     #    ~0.0080 at Re=1e6; this integral method should land close.
     v10 = solve(geom, 0.0, re=1e6)
     passed &= check("NACA0012 a=0 Re=1e6 Cd (profile)", v10.bl.cd, 0.0080, 0.0025)
 
-    # 8. The viscous Cd is real (positive) drag -- the whole point of the
+    # 9. The viscous Cd is real (positive) drag -- the whole point of the
     #    correction. The inviscid pressure Cd stays ~0 (d'Alembert) regardless.
     passed &= check_true("Viscous Cd is positive", v10.bl.cd > 0,
                          f"Cd={v10.bl.cd:.4f}")
 
-    # 9. Drag falls as Reynolds number rises (thinner boundary layer).
+    # 10. Drag falls as Reynolds number rises (thinner boundary layer).
     v90 = solve(geom, 0.0, re=9e6)
     passed &= check_true("Cd decreases with Reynolds number", v90.bl.cd < v10.bl.cd,
                          f"Cd(9e6)={v90.bl.cd:.4f} < Cd(1e6)={v10.bl.cd:.4f}")
 
-    # 10. Drag rises with incidence (more suction-side adverse gradient).
+    # 11. Drag rises with incidence (more suction-side adverse gradient).
     v18 = solve(geom, 8.0, re=1e6)
     passed &= check_true("Cd increases with angle of attack", v18.bl.cd > v10.bl.cd,
                          f"Cd(a=8)={v18.bl.cd:.4f} > Cd(a=0)={v10.bl.cd:.4f}")
 
-    # 11. Transition moves toward the leading edge as Reynolds number rises.
+    # 12. Transition moves toward the leading edge as Reynolds number rises.
     passed &= check_true("Transition advances with Reynolds number",
                          v90.bl.upper.x_transition < v10.bl.upper.x_transition,
                          f"x_tr(9e6)={v90.bl.upper.x_transition:.3f} < "
                          f"x_tr(1e6)={v10.bl.upper.x_transition:.3f}")
 
-    # 12. Integrated skin friction is a positive subset of the profile drag.
+    # 13. Integrated skin friction is a positive subset of the profile drag.
     passed &= check_true("0 < friction drag < profile drag",
                          0.0 < v10.bl.cd_friction < v10.bl.cd,
                          f"Cdf={v10.bl.cd_friction:.4f}, Cd={v10.bl.cd:.4f}")
 
-    # 13. Attaching a viscous estimate must not perturb the inviscid solution.
+    # 14. Attaching a viscous estimate must not perturb the inviscid solution.
     passed &= check("Inviscid Cl unchanged by re=", v10.cl, s0.cl, 1e-12)
     passed &= check("Inviscid Cd unchanged by re=", v10.cd, s0.cd, 1e-12)
 
-    # 14. Trailing-edge separation onset: attached at a=0, separated near stall.
+    # 15. Trailing-edge separation onset: attached at a=0, separated near stall.
     v_stall = solve(geom, 14.0, re=1e6)
     passed &= check_true("Attached at a=0, separates near stall (a=14)",
                          (not v10.bl.separated) and v_stall.bl.separated,
@@ -157,23 +176,33 @@ def main():
     x2, y2 = naca4("2412", n_panels=200)
     cl_ref = solve(Geometry(x2, y2), 4.0).cl  # direct NACA, the reference
 
-    # 15. Selig round-trip: write coords -> parse -> re-panel -> solve == direct.
+    # 16. Selig round-trip: write coords -> parse -> re-panel -> solve == direct.
     sx, sy, sname = parse_dat(format_selig(x2, y2, "NACA 2412"))
     passed &= check("Selig .dat round-trip Cl", solve(Geometry(*repanel(sx, sy, 200)), 4.0).cl,
                     cl_ref, 0.01)
     passed &= check_true("Selig title line parsed", sname == "NACA 2412", repr(sname))
 
-    # 16. Lednicer format parses to the same geometry.
+    # 17. Lednicer format parses to the same geometry.
     lx, ly, _ = parse_dat(format_lednicer(x2, y2, "NACA 2412"))
     passed &= check("Lednicer .dat round-trip Cl", solve(Geometry(*repanel(lx, ly, 200)), 4.0).cl,
                     cl_ref, 0.01)
 
-    # 17. Coordinates are normalized to unit chord (scale + offset invariant).
+    # 18. Coordinates are normalized to unit chord (scale + offset invariant).
     nx, ny, _ = parse_dat(format_selig(x2 * 4.0 + 3.0, y2 * 4.0, "scaled"))
     passed &= check("Scaled/offset .dat normalized Cl", solve(Geometry(*repanel(nx, ny, 200)), 4.0).cl,
                     cl_ref, 0.01)
 
-    # 18. Every bundled sample loads, re-panels, and solves sanely.
+    # 19. The bundled circle.dat is that same analytic case on disk, so reading
+    #     it back must still match Cp = 1 - 4 sin^2(theta). The tolerance is set
+    #     by the file's 6-decimal coordinates, not by the solver.
+    dx, dy, _ = parse_dat(load_sample_text("circle"))
+    dg = Geometry(dx, dy)
+    d_th = np.mod(np.arctan2(dg.yc, dg.xc - 0.5), 2.0 * np.pi)
+    d_err = float(np.max(np.abs(solve(dg, 0.0).cp - (1.0 - 4.0 * np.sin(d_th) ** 2))))
+    passed &= check_true("circle.dat Cp matches the analytic circle", d_err < 2e-3,
+                         f"max |dCp| = {d_err:.2e}")
+
+    # 20. Every bundled sample loads, re-panels, and solves sanely.
     samples = list_samples()
     passed &= check_true("Bundled samples present", len(samples) >= 1,
                          str([k for k, _ in samples]))
@@ -191,7 +220,7 @@ def main():
     from aerosim.flowfield import velocity_field
     from aerosim.webapp import CustomRequest, _naca_code, _pack
 
-    # 19. The Cp payload must split the surface at the true leading edge. The LE
+    # 21. The Cp payload must split the surface at the true leading edge. The LE
     #     only lands on the mid index for a symmetric section, so splitting at
     #     n//2 puts lower-surface points on the upper curve at the suction peak.
     split_ok = True
@@ -207,7 +236,7 @@ def main():
         )
     passed &= check_true("Cp payload splits at the leading edge", split_ok)
 
-    # 20. Out-of-range requests are rejected by the validation layer instead of
+    # 22. Out-of-range requests are rejected by the validation layer instead of
     #     reaching the solver and surfacing as a 500.
     bad = (dict(alpha=999.0), dict(re_log=400.0), dict(re_log=-400.0),
            dict(panels=0), dict(panels=20000))
@@ -220,13 +249,13 @@ def main():
     passed &= check_true("Out-of-range requests rejected", rejected == len(bad),
                          f"{rejected}/{len(bad)}")
 
-    # 21. Camber needs a non-zero position, so the API snaps P 0 -> 1; without it
+    # 23. Camber needs a non-zero position, so the API snaps P 0 -> 1; without it
     #     M>0 with P=0 silently returns a symmetric section.
     code_snapped, p_snapped = _naca_code(2, 0, 12)
     passed &= check_true("Cambered NACA code snaps P 0 -> 1",
                          code_snapped == "2112" and p_snapped == 1, code_snapped)
 
-    # 22. The panel factorization is cached on the Geometry, so a reused geometry
+    # 24. The panel factorization is cached on the Geometry, so a reused geometry
     #     must give bit-identical results to a freshly built one at every alpha.
     gx, gy = naca4("2412", n_panels=160)
     shared = Geometry(gx, gy)
@@ -236,7 +265,7 @@ def main():
             for a in (-4.0, 0.0, 6.0, 11.0)),
     )
 
-    # 23. The reconstructed flow field relaxes to the free stream far upstream
+    # 25. The reconstructed flow field relaxes to the free stream far upstream
     #     and masks points inside the body (the web UI relies on both).
     ff = solve(Geometry(gx, gy), 6.0)
     _, _, U, V = velocity_field(ff, np.array([-30.0, 0.5]), np.array([0.0]))
