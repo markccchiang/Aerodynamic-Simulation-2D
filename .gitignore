@@ -11,3 +11,9 @@ wheels/
 
 # Sphinx build output
 docs/_build/
+
+# Claude Code project instructions
+CLAUDE.md
+
+# JetBrains IDE
+.idea/
