@@ -200,3 +200,12 @@ And for `.dat` loading:
   it captures viscous decambering but not massive separation.
 - A drag breakdown (friction vs form vs induced) and a `Cl`/`Cd` (L/D) readout
   on the polar.
+
+## License
+
+Released under the [MIT License](LICENSE) — free to use, modify and redistribute,
+including in commercial and closed-source work, provided the copyright notice
+travels with it. Every dependency is permissively licensed as well (NumPy, SciPy
+and uvicorn under BSD, FastAPI and pydantic under MIT, matplotlib under the PSF
+licence, and Plotly.js under MIT), so there is no copyleft obligation anywhere in
+the stack.
