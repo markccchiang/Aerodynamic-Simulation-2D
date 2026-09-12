@@ -35,6 +35,15 @@ visible directly; coupled points where the iteration did not converge (it stops
 converging as you approach stall) are ringed in amber rather than drawn as
 settled answers.
 
+Between the flow view and the polar sits an **Animation** strip: choose angle of
+attack, max camber M, camber position P or thickness, give it a from/to/step
+range, and **Build** sweeps that one parameter and plays the result back — the
+flow field, surface pressure and coefficients all follow the sweep. Frames are
+solved once and cached, so scrubbing, looping and changing speed never re-solve.
+The sliders are left alone while it plays (each plot titles itself with what it
+is showing), and touching any of them stops playback and returns to live mode. A
+loaded `.dat` airfoil can only sweep α, since M/P/t are NACA shape digits.
+
 The web page is a thin front-end — all physics lives in the UI-agnostic solver
 core, which you can also drive directly from a script or notebook.
 
