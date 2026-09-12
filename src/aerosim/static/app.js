@@ -245,6 +245,7 @@ document.getElementById('source').addEventListener('change', (e) => {
         setNacaEnabled(false);
     }
     document.getElementById('loaded').textContent = '';
+    animSyncSource();
     schedule();
 });
 
@@ -261,6 +262,7 @@ document.getElementById('upload').addEventListener('change', (e) => {
         opt.textContent = '↑ ' + file.name;
         sel.value = 'upload';
         setNacaEnabled(false);
+        animSyncSource();
         schedule();
     };
     reader.readAsText(file);
@@ -269,26 +271,35 @@ document.getElementById('upload').addEventListener('change', (e) => {
 
 // ---- fetch + render (debounced, drops stale responses) ----
 let reqId = 0, timer = null;
-async function solve() {
+
+// One solved state = one frame. `override` replaces individual controls, which
+// is how the animation sweeps a parameter without touching the sliders.
+async function fetchFrame(override = {}) {
     const c = controls();
     const couple = document.getElementById('couple').checked;
+    let res;
+    if (source.type === 'naca') {
+        const q = { ...c, panels: PANELS, couple, ...override };
+        res = await fetch('/api/solve?' + new URLSearchParams(q));
+    } else {
+        const body = { alpha: c.alpha, re_log: c.re_log, panels: PANELS,
+                       name: source.name, couple, ...override };
+        if (source.type === 'sample') body.sample = source.sample; else body.dat = source.dat;
+        res = await fetch('/api/solve_custom', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+        });
+    }
+    if (!res.ok) {
+        const msg = await res.json().catch(() => ({}));
+        throw new Error(msg.detail || ('HTTP ' + res.status));
+    }
+    return res.json();
+}
+
+async function solve() {
     const mine = ++reqId;
     try {
-        let res;
-        if (source.type === 'naca') {
-            res = await fetch('/api/solve?' + new URLSearchParams({ ...c, panels: PANELS, couple }));
-        } else {
-            const body = { alpha: c.alpha, re_log: c.re_log, panels: PANELS, name: source.name, couple };
-            if (source.type === 'sample') body.sample = source.sample; else body.dat = source.dat;
-            res = await fetch('/api/solve_custom', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-            });
-        }
-        if (!res.ok) {
-            const msg = await res.json().catch(() => ({}));
-            throw new Error(msg.detail || ('HTTP ' + res.status));
-        }
-        const d = await res.json();
+        const d = await fetchFrame();
         if (mine !== reqId) return;            // a newer request superseded this one
         if (source.type === 'naca') {
             // Mirror the server's camber-position rule (P snaps to 1 when M>0, P=0).
@@ -305,7 +316,140 @@ async function solve() {
         console.error(e);
     }
 }
-function schedule() { refreshLabels(); clearTimeout(timer); timer = setTimeout(solve, 60); }
+function schedule() { refreshLabels(); animInvalidate(); clearTimeout(timer); timer = setTimeout(solve, 60); }
+
+// ---- animation: sweep one parameter, cache the frames, play them back ----
+// A frame is just a normal solve, so this drives the same /api/solve endpoint as
+// the live view; the frames are prefetched once and replayed from memory, which
+// is what makes scrubbing and looping instant.
+const ANIM = {
+    alpha: { from: -6, to: 16, step: 1, lo: -30, hi: 30, fmt: v => `α = ${v.toFixed(1)}°` },
+    m:     { from: 0,  to: 9,  step: 1, lo: 0,   hi: 9,  fmt: v => `M = ${v.toFixed(0)}%` },
+    p:     { from: 1,  to: 9,  step: 1, lo: 0,   hi: 9,  fmt: v => `P = ${(v / 10).toFixed(1)} c` },
+    t:     { from: 6,  to: 24, step: 2, lo: 1,   hi: 40, fmt: v => `t = ${v.toFixed(0)}%` },
+};
+const ANIM_MAX_FRAMES = 48;
+let animFrames = [], animIdx = 0, animTimer = null, animBuildId = 0, animBuilding = false;
+
+const $ = id => document.getElementById(id);
+const animParam = () => $('anim-param').value;
+
+function animLoadDefaults() {
+    const d = ANIM[animParam()];
+    $('anim-from').value = d.from; $('anim-to').value = d.to; $('anim-step').value = d.step;
+}
+
+// The swept values, clamped to what the API accepts so a frame can never 422.
+function animValues() {
+    const d = ANIM[animParam()];
+    const clamp = v => Math.min(Math.max(v, d.lo), d.hi);
+    const from = clamp(parseFloat($('anim-from').value));
+    const to = clamp(parseFloat($('anim-to').value));
+    const step = Math.abs(parseFloat($('anim-step').value));
+    if (!isFinite(from) || !isFinite(to) || !isFinite(step) || step <= 0) return [];
+    const dir = to >= from ? 1 : -1;
+    const n = Math.min(Math.floor(Math.abs(to - from) / step) + 1, ANIM_MAX_FRAMES);
+    return Array.from({ length: n }, (_, i) => +(from + dir * i * step).toFixed(4));
+}
+
+function animStop() {
+    clearInterval(animTimer); animTimer = null; $('anim-play').textContent = '▶';
+}
+
+// Abandon an in-flight build: the loop notices the id moved and bails out.
+function animCancelBuild() {
+    if (!animBuilding) return;
+    animBuildId++; animBuilding = false;
+    $('anim-build').textContent = 'Build';
+}
+
+// Any change to the inputs a frame was solved with makes the cache stale. This
+// also kills a running build, which would otherwise finish with frames solved
+// half at the old settings and half at the new ones.
+function animInvalidate() {
+    animStop();
+    animCancelBuild();
+    if (!animFrames.length) return;
+    animFrames = []; animIdx = 0;
+    $('anim-play').disabled = true;
+    $('anim-scrub').disabled = true; $('anim-scrub').max = 0;
+    $('anim-val').textContent = '—';
+    $('anim-note').textContent = '⟳ settings changed — rebuild';
+}
+
+function animShow(i) {
+    if (!animFrames.length) return;
+    animIdx = (i + animFrames.length) % animFrames.length;
+    const f = animFrames[animIdx];
+    drawFlow(f.data); drawCp(f.data); drawCoeffs(f.data);
+    $('anim-scrub').value = animIdx;
+    $('anim-val').textContent = f.label;
+}
+
+function animPlay() {
+    if (animFrames.length < 2) return;
+    animStop();
+    const fps = parseFloat($('anim-fps').value);
+    $('anim-play').textContent = '❚❚';
+    animTimer = setInterval(() => {
+        const last = animIdx === animFrames.length - 1;
+        if (last && !$('anim-loop').checked) { animStop(); return; }
+        animShow(animIdx + 1);
+    }, 1000 / fps);
+}
+
+async function animBuild() {
+    if (animBuilding) {                      // the button reads "Cancel" while building
+        animCancelBuild();
+        $('anim-note').textContent = 'build cancelled';
+        return;
+    }
+    const key = animParam();
+    const values = animValues();
+    if (!values.length) { $('anim-note').textContent = '⚠ check from / to / step'; return; }
+
+    animStop();
+    const mine = ++animBuildId;
+    animBuilding = true;
+    const frames = [];
+    $('anim-build').textContent = 'Cancel';
+    $('anim-play').disabled = true; $('anim-scrub').disabled = true;
+    try {
+        for (let i = 0; i < values.length; i++) {
+            const data = await fetchFrame({ [key]: values[i] });
+            if (mine !== animBuildId) return;        // cancelled or invalidated
+            frames.push({ data, label: ANIM[key].fmt(values[i]) });
+            $('anim-note').textContent = `building ${i + 1}/${values.length}…`;
+            drawFlow(data); drawCp(data); drawCoeffs(data);   // show progress as it solves
+        }
+        animFrames = frames; animIdx = 0;
+        $('anim-scrub').max = frames.length - 1; $('anim-scrub').value = 0;
+        $('anim-play').disabled = false; $('anim-scrub').disabled = false;
+        $('anim-note').textContent = frames.length === 1
+            ? '1 frame — widen the range or shrink the step'
+            : `${frames.length} frames — drag the bar to scrub`;
+        animShow(0);
+        animPlay();
+    } catch (e) {
+        if (mine === animBuildId) $('anim-note').textContent = '⚠ ' + e.message;
+        console.error(e);
+    } finally {
+        if (mine === animBuildId) { animBuilding = false; $('anim-build').textContent = 'Build'; }
+    }
+}
+
+// Only alpha is meaningful for a loaded .dat file — the rest are NACA shape digits.
+function animSyncSource() {
+    const naca = source.type === 'naca';
+    for (const o of $('anim-param').options) if (o.value !== 'alpha') o.disabled = !naca;
+    if (!naca && animParam() !== 'alpha') { $('anim-param').value = 'alpha'; animLoadDefaults(); }
+}
+
+$('anim-param').addEventListener('change', () => { animLoadDefaults(); animInvalidate(); });
+$('anim-build').addEventListener('click', animBuild);
+$('anim-play').addEventListener('click', () => { animTimer ? animStop() : animPlay(); });
+$('anim-scrub').addEventListener('input', e => { animStop(); animShow(parseInt(e.target.value, 10)); });
+$('anim-fps').addEventListener('change', () => { if (animTimer) animPlay(); });
 
 document.querySelectorAll('.ctl input').forEach(inp => inp.addEventListener('input', schedule));
 document.getElementById('couple').addEventListener('change', schedule);
@@ -326,11 +470,16 @@ document.getElementById('reset').addEventListener('click', () => {
     setNacaEnabled(true);
     polarData = null; polarSig = null;
     document.getElementById('polar-note').textContent = '';
+    animInvalidate();
+    document.getElementById('anim-note').textContent = '';
+    animSyncSource(); animLoadDefaults();
     setPolarOpen(false);
     Plotly.purge('liftcurve'); Plotly.purge('dragpolar');
     schedule();
 });
 
 loadSamples();
+animLoadDefaults();
+animSyncSource();
 refreshLabels();
 solve();

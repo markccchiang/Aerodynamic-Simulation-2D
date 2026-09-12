@@ -75,6 +75,33 @@
     </div>
 </div>
 
+<div class="anim" id="anim">
+    <div class="anim-head">
+        <h2>Animation</h2>
+        <select id="anim-param" aria-label="Parameter to sweep">
+            <option value="alpha">Angle of attack α</option>
+            <option value="m">Max camber M</option>
+            <option value="p">Camber position P</option>
+            <option value="t">Thickness</option>
+        </select>
+        <label class="num">from <input type="number" id="anim-from" step="any" /></label>
+        <label class="num">to <input type="number" id="anim-to" step="any" /></label>
+        <label class="num">step <input type="number" id="anim-step" step="any" /></label>
+        <button class="reset" id="anim-build">Build</button>
+        <button class="play" id="anim-play" disabled aria-label="Play or pause">▶</button>
+        <input type="range" class="scrub" id="anim-scrub" min="0" max="0" value="0" step="1"
+               disabled aria-label="Scrub through frames" />
+        <span class="anim-val" id="anim-val">—</span>
+        <label class="toggle"><input type="checkbox" id="anim-loop" checked /><span>loop</span></label>
+        <select id="anim-fps" class="fps" aria-label="Playback speed">
+            <option value="5">slow</option>
+            <option value="12" selected>normal</option>
+            <option value="24">fast</option>
+        </select>
+        <span id="anim-note" class="loaded"></span>
+    </div>
+</div>
+
 <div class="polar collapsed" id="polar">
     <div class="polar-head">
         <button class="polar-toggle" id="polar-toggle" aria-label="Show or hide the polar plots">▸</button>
