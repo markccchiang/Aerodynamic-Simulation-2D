@@ -164,7 +164,7 @@ match the code.
 ```bash
 uv sync                                        # installs the docs toolchain (dev group)
 uv run sphinx-build -M html docs docs/_build   # -> docs/_build/html/index.html
-./open-html.sh                                 # open it (macOS)
+./open-html.sh                                 # open it (macOS or Linux)
 ```
 
 ## Project layout
