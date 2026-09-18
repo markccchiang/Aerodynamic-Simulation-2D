@@ -243,7 +243,8 @@ thickness is the *input* to the panel solve, not the output. That is
 explicitly out of scope here, and the solver reports
 ``Solution.converged = False`` for cases where it cannot make the
 direct iteration close. The "Possible next steps" section of the
-project README lists semi-inverse coupling as the natural next addition.
+project's development guide (``guide/development.md``) lists
+semi-inverse coupling as the natural next addition.
 
 
 Where it fits in the code

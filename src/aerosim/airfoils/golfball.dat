@@ -6,7 +6,7 @@ Golf ball (dimpled circle)
 # Node order matches the Selig convention used by the NACA samples:
 #   TE (theta=0) -> upper surface -> LE (theta=pi) -> lower surface -> TE.
 # NOTE: a bluff body in an inviscid panel method has no drag and no wake;
-# see the README/theory docs before reading anything into Cd here.
+# see guide/airfoils.md and the theory docs before reading anything into Cd here.
 1.000000 0.000000
 0.999957 0.006545
 0.999807 0.013088
