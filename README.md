@@ -35,7 +35,7 @@ To drive the solver from your own script or notebook instead, see
 
 | Guide | What it covers |
 |-------|----------------|
-| [Web UI](guide/web-ui.md) | the browser front-end: airfoil panel, lift curve & drag polar, animation strip |
+| [Web UI](guide/web-ui.md) | how to use the browser front-end, control by control, with screenshots |
 | [Using the solver from Python](guide/using-python.md) | importing `aerosim` in scripts and notebooks, a worked example, and what a solve returns |
 | [Loading airfoils](guide/airfoils.md) | Selig and Lednicer `.dat` files, the bundled samples, and the circle / golf-ball pair |
 | [How it works](guide/how-it-works.md) | the panel method, the viscous drag correction, and two-way coupling |
