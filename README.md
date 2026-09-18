@@ -50,6 +50,7 @@ The code examples in the guides assume one or the other.
 | [Architecture](guide/architecture.md) | the three layers, how data flows through them, and the design decisions behind them |
 | [Validation](guide/validation.md) | what `src/validate.py` checks, group by group |
 | [Development](guide/development.md) | project layout and possible next steps |
+| [References](guide/references.md) | the textbooks, papers and data sources behind each method |
 
 ### Building the Sphinx docs
 
