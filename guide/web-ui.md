@@ -11,7 +11,7 @@ bundled sample or **upload your own `.dat` file** (see
 
 The web page is a thin front-end — all physics lives in the UI-agnostic solver
 core, which you can also drive directly from a script or notebook (see
-[Using the solver from Python](../README.md#using-the-solver-from-python)).
+[Using the solver from Python](using-python.md)).
 
 ## Lift curve & drag polar
 

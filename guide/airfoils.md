@@ -10,7 +10,7 @@ the solver gets consistent resolution regardless of how the file was sampled.
 
 > [!NOTE]
 > The code examples assume `src/` is on the import path — see
-> [Using the solver from Python](../README.md#using-the-solver-from-python).
+> [Using the solver from Python](using-python.md).
 
 ```python
 from aerosim import airfoil_from_dat, Geometry, solve

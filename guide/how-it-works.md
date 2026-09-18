@@ -34,7 +34,7 @@ are unchanged. Pass a chord-based Reynolds number to switch it on:
 
 > [!NOTE]
 > The code examples assume `src/` is on the import path — see
-> [Using the solver from Python](../README.md#using-the-solver-from-python).
+> [Using the solver from Python](using-python.md).
 
 ```python
 from aerosim import naca4, Geometry, solve

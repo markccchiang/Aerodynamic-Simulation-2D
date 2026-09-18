@@ -21,7 +21,7 @@
 | `gallery/`                | screenshots and diagrams used by the README and the guides |
 
 The physics core is UI-agnostic — you can drive it from a script or a notebook,
-not just the web UI (see [Using the solver from Python](../README.md#using-the-solver-from-python)).
+not just the web UI (see [Using the solver from Python](using-python.md)).
 
 ## Possible next steps
 

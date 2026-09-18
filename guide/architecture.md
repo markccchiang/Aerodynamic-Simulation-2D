@@ -6,7 +6,7 @@ The code is three layers with dependencies pointing one way: a static browser
 front-end calls a thin FastAPI web layer, which calls a UI-agnostic physics core.
 The core never imports the web layer, and the web layer contains no physics —
 every solve and polar endpoint ends in the same `solve()` you can call from a
-script or notebook (see [Using the solver from Python](../README.md#using-the-solver-from-python)).
+script or notebook (see [Using the solver from Python](using-python.md)).
 
 ![Software architecture: a static browser front-end talks HTTP/JSON to a FastAPI web layer, which calls solve() in a UI-agnostic physics core](../gallery/architecture.svg)
 

@@ -28,23 +28,15 @@ Drag the sliders to change the angle of attack, Reynolds number, and the NACA
 airfoil (see [Loading airfoils](guide/airfoils.md)). The flow field, surface
 pressure plot, and the lift/drag/moment coefficients all update live.
 
-### Using the solver from Python
-
-The `aerosim` package isn't installed, so to import it from your own script,
-run from the repo root with `src/` on the import path:
-
-```bash
-PYTHONPATH=src uv run python my_script.py
-```
-
-In a notebook, `sys.path.insert(0, "src")` (from the repo root) does the same.
-The code examples in the guides assume one or the other.
+To drive the solver from your own script or notebook instead, see
+[Using the solver from Python](guide/using-python.md).
 
 ## Documentation
 
 | Guide | What it covers |
 |-------|----------------|
 | [Web UI](guide/web-ui.md) | the browser front-end: airfoil panel, lift curve & drag polar, animation strip |
+| [Using the solver from Python](guide/using-python.md) | importing `aerosim` in scripts and notebooks, a worked example, and what a solve returns |
 | [Loading airfoils](guide/airfoils.md) | Selig and Lednicer `.dat` files, the bundled samples, and the circle / golf-ball pair |
 | [How it works](guide/how-it-works.md) | the panel method, the viscous drag correction, and two-way coupling |
 | [Architecture](guide/architecture.md) | the three layers, how data flows through them, and the design decisions behind them |
