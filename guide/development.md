@@ -18,7 +18,7 @@
 | `src/validate.py`         | checks against thin-airfoil theory & known results |
 | `docs/theory/`            | Sphinx write-up of the theory, with solver-generated figures |
 | `guide/`                  | these Markdown guides |
-| `gallery/`                | screenshots and diagrams used by the README and the guides |
+| `gallery/`                | screenshots, diagrams and the logo (`gallery/logo/`) |
 
 The physics core is UI-agnostic — you can drive it from a script or a notebook,
 not just the web UI (see [Using the solver from Python](using-python.md)).

@@ -1,7 +1,14 @@
-# Aerodynamic Simulation 2D
+<h1 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="gallery/logo/aerosim-logo-dark.svg">
+    <img src="gallery/logo/aerosim-logo-light.svg" alt="aerosim — Aerodynamic Simulation 2D" width="475">
+  </picture>
+</h1>
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Python 3.12+](https://img.shields.io/badge/python-3.12+-3776AB.svg?logo=python&logoColor=white)](https://www.python.org/downloads/)
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
+  <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.12+-3776AB.svg?logo=python&amp;logoColor=white" alt="Python 3.12+"></a>
+</p>
 
 An interactive **2D airfoil aerodynamics simulator** built from scratch in Python.
 It solves the incompressible potential-flow field around an airfoil with a
@@ -10,6 +17,8 @@ in real time in your browser. The solver is the Python package `aerosim`, in
 `src/aerosim/`.
 
 ![preview](gallery/web-preview.png)
+
+![Flow around the bundled golf ball at zero angle of attack](gallery/golfball-preview.png)
 
 ## Quick start
 
